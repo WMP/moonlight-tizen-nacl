@@ -69,7 +69,7 @@ class MoonlightInstance : public pp::Instance, public pp::MouseLock {
             m_MousePositionY(0),
             m_LastTouchUpTime(0),
             m_HttpThreadPoolSequence(0),
-            m_GamepadInputEnabled(false) {
+            m_GamepadInputEnabled(true) {
             // This function MUST be used otherwise sockets don't work (nacl_io_init() doesn't work!)            
             nacl_io_init_ppapi(pp_instance(), pp::Module::Get()->get_browser_interface());
 

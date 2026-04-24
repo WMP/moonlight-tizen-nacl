@@ -357,10 +357,28 @@ static void DebugActiveOverlay(
         }
     }
 
-    // For mapping tests, also post neutral frames occasionally so we can see mode/buttons/axes.
     if (hasActiveInput) {
         DebugPostMessage(ss.str());
     }
+}
+
+static void DebugFullRawRemote(unsigned int p, const PP_GamepadSampleData& padData, bool isTizenBT) {
+    std::ostringstream ss;
+
+    ss << "RAW slot=" << p
+       << " mode=" << (isTizenBT ? "BT" : "STD")
+       << " btns=" << padData.buttons_length
+       << " axes=" << padData.axes_length;
+
+    for (unsigned int i = 0; i < padData.buttons_length; i++) {
+        ss << " b" << i << "=" << padData.buttons[i];
+    }
+
+    for (unsigned int i = 0; i < padData.axes_length; i++) {
+        ss << " a" << i << "=" << padData.axes[i];
+    }
+
+    DebugPostMessage(ss.str());
 }
 
 static void DebugMappedPrintf(
@@ -667,6 +685,7 @@ void MoonlightInstance::PollGamepads() {
 
             if (s_debugCounter[p] % GAMEPAD_DEBUG_FULL_EVERY == 1) {
                 DebugRawStatePrintf(p, padData, isTizenBT);
+                DebugFullRawRemote(p, padData, isTizenBT);
                 DebugMappedPrintf(
                     p,
                     controllerIndex,
