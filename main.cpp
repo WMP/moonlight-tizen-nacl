@@ -21,6 +21,7 @@
 #define MSG_STREAM_TERMINATED "streamTerminated: "
 
 #define MSG_OPENURL "openUrl"
+#define MSG_SET_GAMEPAD_INPUT_ENABLED "setGamepadInputEnabled"
 
 MoonlightInstance* g_Instance;
 
@@ -182,6 +183,8 @@ void MoonlightInstance::HandleMessage(const pp::Var& var_message) {
         HandlePair(callbackId, params);
     } else if (strcmp(method.c_str(), "STUN") == 0) {
         HandleSTUN(callbackId, params);
+    } else if (strcmp(method.c_str(), MSG_SET_GAMEPAD_INPUT_ENABLED) == 0) {
+        HandleSetGamepadInputEnabled(callbackId, params);
     } else {
         pp::Var response("Unhandled message received: " + method);
         PostMessage(response);
@@ -287,6 +290,29 @@ void MoonlightInstance::HandleStopStream(int32_t callbackId, pp::VarArray args) 
 void MoonlightInstance::HandleOpenURL(int32_t callbackId, pp::VarArray args) {
     m_HttpThreadPool[m_HttpThreadPoolSequence++ % HTTP_HANDLER_THREADS]->message_loop().PostWork(
         m_CallbackFactory.NewCallback(&MoonlightInstance::NvHTTPRequest, callbackId, args));
+}
+
+void MoonlightInstance::HandleSetGamepadInputEnabled(int32_t callbackId, pp::VarArray args) {
+    bool enabled = false;
+
+    if (args.GetLength() > 0) {
+        if (args.Get(0).is_bool()) {
+            enabled = args.Get(0).AsBool();
+        } else {
+            enabled = args.Get(0).AsInt() != 0;
+        }
+    }
+
+    m_GamepadInputEnabled = enabled;
+
+    pp::VarDictionary ret;
+    ret.Set("callbackId", callbackId);
+    ret.Set("type", "resolve");
+    ret.Set("ret", enabled);
+    PostMessage(ret);
+
+    pp::Var response(std::string("padDebug: GAMEPAD_INPUT ") + (enabled ? "ENABLED" : "DISABLED"));
+    PostMessage(response);
 }
 
 void MoonlightInstance::HandlePair(int32_t callbackId, pp::VarArray args) {

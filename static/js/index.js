@@ -4,6 +4,71 @@ var pairingCert;
 var myUniqueid = '0123456789ABCDEF'; // Use the same UID as other Moonlight clients to allow them to quit each other's games
 var api; // `api` should only be set if we're in a host-specific screen. on the initial screen it should always be null.
 var isInGame = false; // flag indicating whether the game stream started
+var DEBUG_SOURCE_STORAGE_KEY = 'moonlightPadDebugSource';
+var GAMEPAD_INPUT_STORAGE_KEY = 'moonlightGamepadInputEnabled';
+var DEBUG_SOURCE_MODES = ['OFF', 'EVENTS', 'JS', 'NACL', 'ALL'];
+
+function getPadDebugSourceMode() {
+  return (window.localStorage.getItem(DEBUG_SOURCE_STORAGE_KEY) || 'EVENTS').toUpperCase();
+}
+
+function setPadDebugSourceMode(mode) {
+  window.localStorage.setItem(DEBUG_SOURCE_STORAGE_KEY, mode);
+  refreshPadDebugUi();
+}
+
+function cyclePadDebugSourceMode() {
+  var currentMode = getPadDebugSourceMode();
+  var currentIndex = DEBUG_SOURCE_MODES.indexOf(currentMode);
+  var nextIndex = (currentIndex + 1) % DEBUG_SOURCE_MODES.length;
+  setPadDebugSourceMode(DEBUG_SOURCE_MODES[nextIndex]);
+}
+
+function isGamepadInputEnabled() {
+  var val = window.localStorage.getItem(GAMEPAD_INPUT_STORAGE_KEY);
+  return val === null || val === '1';
+}
+
+function setGamepadInputEnabled(enabled) {
+  window.localStorage.setItem(GAMEPAD_INPUT_STORAGE_KEY, enabled ? '1' : '0');
+  refreshPadDebugUi();
+  applyGamepadInputSetting();
+}
+
+function refreshPadDebugUi() {
+  var debugSourceBtn = document.getElementById('debugSourceBtn');
+  var gamepadInputSwitch = document.getElementById('gamepadInputEnabledSwitch');
+  var gamepadInputBtn = document.getElementById('gamepadInputBtn');
+
+  if (debugSourceBtn) {
+    debugSourceBtn.textContent = 'DBG: ' + getPadDebugSourceMode();
+  }
+
+  if (gamepadInputSwitch) {
+    gamepadInputSwitch.checked = isGamepadInputEnabled();
+  }
+
+  if (gamepadInputBtn && gamepadInputBtn.MaterialIconToggle) {
+    gamepadInputBtn.MaterialIconToggle.checkToggleState();
+  }
+}
+
+function applyGamepadInputSetting() {
+  if (!common || !common.naclModule) {
+    return Promise.resolve(false);
+  }
+
+  var enabled = isGamepadInputEnabled();
+  return sendMessage('setGamepadInputEnabled', [enabled ? 1 : 0]).then(function() {
+    if (window.remotePadDebugLog) {
+      window.remotePadDebugLog('EVENT', 'GAMEPAD_INPUT ' + (enabled ? 'ENABLED' : 'DISABLED'));
+    }
+    return enabled;
+  }, function(failedSet) {
+    console.error('%c[index.js, applyGamepadInputSetting]', 'color: green;', 'Failed to update gamepad input setting:', failedSet);
+    return false;
+  });
+}
 
 function loadProductInfos() {
   const modelCodePlaceholder = document.getElementById("modelCodePlaceholder");
@@ -27,10 +92,20 @@ function attachListeners() {
   $("#remoteAudioEnabledSwitch").on('click', saveRemoteAudio);
   $("#mouseLockEnabledSwitch").on('click', saveMouseLock);
   $('#optimizeGamesSwitch').on('click', saveOptimize);
+  $('#debugSourceBtn').on('click', function() {
+    cyclePadDebugSourceMode();
+    if (window.remotePadDebugLog) {
+      window.remotePadDebugLog('EVENT', 'DEBUG_SOURCE ' + getPadDebugSourceMode());
+    }
+  });
+  $('#gamepadInputEnabledSwitch').on('change', function() {
+    setGamepadInputEnabled(this.checked);
+  });
   $('#addHostCell').on('click', addHost);
   $('#backIcon').on('click', showHostsAndSettingsMode);
   $('#quitCurrentApp').on('click', stopGameWithConfirmation);
   $(window).resize(fullscreenNaclModule);
+  refreshPadDebugUi();
 
   var registerMenu = (elementId, view) => {
     $(`#${elementId}`).on('click', () => {
@@ -206,6 +281,7 @@ function moduleDidLoad() {
   openIndexDB(loadHTTPCertsCb);
 }
 function loadHTTPCertsCb() {
+  applyGamepadInputSetting();
   console.log('load the HTTP cert and unique ID if we have one.');
   getData('cert', function (savedCert) {
     if (savedCert.cert != null) { // we have a saved cert
@@ -604,6 +680,9 @@ function showApps(host) {
 // set the layout to the initial mode you see when you open moonlight
 function showHostsAndSettingsMode() {
   console.log('%c[index.js]', 'color: green;', 'Entering "Show apps and hosts" mode');
+  if (window.remotePadDebugLog) {
+    window.remotePadDebugLog('EVENT', 'UI showHostsAndSettingsMode');
+  }
   $("#main-navigation").show();
   $(".nav-menu-parent").show();
   $("#externalAudioBtn").show();
@@ -622,6 +701,9 @@ function showHostsAndSettingsMode() {
 
 function showAppsMode() {
   console.log('%c[index.js]', 'color: green;', 'Entering "Show apps" mode');
+  if (window.remotePadDebugLog) {
+    window.remotePadDebugLog('EVENT', 'UI showAppsMode');
+  }
   $('#backIcon').show();
   $("#main-navigation").show();
   $("#main-content").children().not("#listener, #loadingSpinner, #naclSpinner").show();
@@ -774,6 +856,9 @@ function startGame(host, appID) {
 
 function playGameMode() {
   console.log('%c[index.js, playGameMode]', 'color:green;', 'Entering play game mode');
+  if (window.remotePadDebugLog) {
+    window.remotePadDebugLog('EVENT', 'UI playGameMode');
+  }
   isInGame = true;
   Controller.stopWatching(); // Hand off controller to NaCl, stop JS polling
 

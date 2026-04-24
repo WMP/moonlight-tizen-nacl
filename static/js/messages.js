@@ -34,9 +34,12 @@ function handleMessage(msg) {
   if (msg.data.callbackId && callbacks[msg.data.callbackId]) { // if it's a callback, treat it as such
     callbacks[msg.data.callbackId][msg.data.type](msg.data.ret);
     delete callbacks[msg.data.callbackId]
-  } else { // else, it's just info, or an event
+    } else { // else, it's just info, or an event
     console.log('%c[messages.js, handleMessage]', 'color:gray;', 'Message data: ', msg.data)
     if (msg.data.indexOf('streamTerminated: ') === 0) { // if it's a recognized event, notify the appropriate function
+      if (window.remotePadDebugLog) {
+        window.remotePadDebugLog('EVENT', msg.data);
+      }
       // Release our keep awake request
       // if (runningOnChrome) {
       //   chrome.power.releaseKeepAwake();
@@ -69,6 +72,9 @@ function handleMessage(msg) {
         showApps(api);
       });
     } else if (msg.data === 'Connection Established') {
+      if (window.remotePadDebugLog) {
+        window.remotePadDebugLog('EVENT', msg.data);
+      }
       $('#loadingSpinner').css('display', 'none');
       $('body').css('backgroundColor', 'black');
 
@@ -77,13 +83,25 @@ function handleMessage(msg) {
       //   chrome.power.requestKeepAwake("display");
       // }
     } else if (msg.data.indexOf('ProgressMsg: ') === 0) {
+      if (window.remotePadDebugLog) {
+        window.remotePadDebugLog('EVENT', msg.data);
+      }
       $('#loadingMessage').text(msg.data.replace('ProgressMsg: ', ''));
     } else if (msg.data.indexOf('TransientMsg: ') === 0) {
+      if (window.remotePadDebugLog) {
+        window.remotePadDebugLog('EVENT', msg.data);
+      }
       snackbarLog(msg.data.replace('TransientMsg: ', ''));
     } else if (msg.data.indexOf('DialogMsg: ') === 0) {
+      if (window.remotePadDebugLog) {
+        window.remotePadDebugLog('EVENT', msg.data);
+      }
       // FIXME: Really use a dialog
       snackbarLogLong(msg.data.replace('DialogMsg: ', ''));
     } else if (msg.data === 'displayVideo') {
+      if (window.remotePadDebugLog) {
+        window.remotePadDebugLog('EVENT', msg.data);
+      }
       // Show the video stream now
       $("#nacl_module")[0].style.opacity = 1.0;
     } else if (msg.data.indexOf('controllerRumble: ' ) === 0) {
@@ -101,6 +119,13 @@ function handleMessage(msg) {
         weakMagnitude: weakMagnitude,
         strongMagnitude: strongMagnitude,
       });
+    } else if (msg.data.indexOf('padDebug: ') === 0) {
+      var padText = msg.data.replace('padDebug: ', '');
+      console.log('%c[messages.js, padDebug]', 'color: orange;', padText);
+
+      if (window.remotePadDebugLog) {
+        window.remotePadDebugLog('NACL', padText, padText);
+      }
     }
   }
 }

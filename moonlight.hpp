@@ -68,9 +68,14 @@ class MoonlightInstance : public pp::Instance, public pp::MouseLock {
             m_MousePositionX(0),
             m_MousePositionY(0),
             m_LastTouchUpTime(0),
-            m_HttpThreadPoolSequence(0) {
+            m_HttpThreadPoolSequence(0),
+            m_GamepadInputEnabled(false) {
             // This function MUST be used otherwise sockets don't work (nacl_io_init() doesn't work!)            
             nacl_io_init_ppapi(pp_instance(), pp::Module::Get()->get_browser_interface());
+
+            for (int i = 0; i < 4; i++) {
+                m_LastPadTimestamps[i] = 0.0;
+            }
             
             LiInitializeStreamConfiguration(&m_StreamConfig);
                 
@@ -100,6 +105,7 @@ class MoonlightInstance : public pp::Instance, public pp::MouseLock {
         void HandleStopStream(int32_t callbackId, pp::VarArray args);
         void HandleOpenURL(int32_t callbackId, pp::VarArray args);
         void HandleSTUN(int32_t callbackId, pp::VarArray args);
+        void HandleSetGamepadInputEnabled(int32_t callbackId, pp::VarArray args);
         void PairCallback(int32_t /*result*/, int32_t callbackId, pp::VarArray args);
         void STUNCallback(int32_t /*result*/, int32_t callbackId, pp::VarArray args);
     
@@ -213,6 +219,7 @@ class MoonlightInstance : public pp::Instance, public pp::MouseLock {
     
         pp::SimpleThread* m_HttpThreadPool[HTTP_HANDLER_THREADS];
         uint32_t m_HttpThreadPoolSequence;
+        bool m_GamepadInputEnabled;
 };
 
 extern MoonlightInstance* g_Instance;
