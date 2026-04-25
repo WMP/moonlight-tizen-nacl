@@ -36,6 +36,8 @@ class MoonlightModule : public pp::Module {
 };
 
 void MoonlightInstance::OnConnectionStarted(uint32_t unused) {
+    ResetGamepadState(true, "connection_started_main");
+
     // Tell the front end
     pp::Var response("Connection Established");
     PostMessage(response);
@@ -52,6 +54,8 @@ void MoonlightInstance::OnConnectionStarted(uint32_t unused) {
 void MoonlightInstance::OnConnectionStopped(uint32_t error) {
     // Not running anymore
     m_Running = false;
+    SetGamepadStreamState(false, "connection_stopped");
+    ResetGamepadState(true, "connection_stopped_main");
     
     // Stop receiving input events
     ClearInputEventRequest(PP_INPUTEVENT_CLASS_MOUSE |
@@ -142,6 +146,8 @@ void* MoonlightInstance::ConnectionThreadFunc(void* context) {
                             NULL, 0,
                             NULL, 0);
     if (err != 0) {
+        me->SetGamepadStreamState(false, "connection_failed");
+
         // Notify the JS code that the stream has ended
         // NB: We pass error code 0 here to avoid triggering a "Connection terminated"
         // warning message.
@@ -152,6 +158,8 @@ void* MoonlightInstance::ConnectionThreadFunc(void* context) {
     
     // Set running state before starting connection-specific threads
     me->m_Running = true;
+    me->SetGamepadStreamState(true, "connection_started");
+    me->ResetGamepadState(true, "stream_thread_start");
     
     pthread_create(&me->m_InputThread, NULL, MoonlightInstance::InputThreadFunc, me);
     
@@ -303,16 +311,13 @@ void MoonlightInstance::HandleSetGamepadInputEnabled(int32_t callbackId, pp::Var
         }
     }
 
-    m_GamepadInputEnabled = enabled;
+    SetGamepadInputEnabledState(enabled, "ipc");
 
     pp::VarDictionary ret;
     ret.Set("callbackId", callbackId);
     ret.Set("type", "resolve");
     ret.Set("ret", enabled);
     PostMessage(ret);
-
-    pp::Var response(std::string("padDebug: GAMEPAD_INPUT ") + (enabled ? "ENABLED" : "DISABLED"));
-    PostMessage(response);
 }
 
 void MoonlightInstance::HandlePair(int32_t callbackId, pp::VarArray args) {

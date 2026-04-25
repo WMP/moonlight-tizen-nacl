@@ -749,12 +749,13 @@
                 }
 
                 function boot() {
+                    var buildVersion = "__BUILD_VERSION__";
                     show("JS GAMEPAD DEBUG BOOTED\nwaiting for input...");
                     if (window.remotePadDebugLog) {
                         window.remotePadDebugLog(
                             "JS",
-                            "BOOT\nendpoint=" + LOG_ENDPOINT,
-                            "boot|" + LOG_ENDPOINT,
+                            "BOOT\nendpoint=" + LOG_ENDPOINT + "\nbuild=" + buildVersion,
+                            "boot|" + LOG_ENDPOINT + "|" + buildVersion,
                         );
                     }
                     setInterval(poll, 100);

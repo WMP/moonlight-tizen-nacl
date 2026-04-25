@@ -9,7 +9,9 @@ ENV NACL_SDK_ROOT=/home/moonlight/pepper_63
 # Copy project sources only after SDK/toolchain is already cached.
 COPY --chown=moonlight . ./moonlight-tizen-nacl
 
+ARG CLEAN_BUILD=0
 RUN cd moonlight-tizen-nacl && \
+    if [ "${CLEAN_BUILD}" = "1" ]; then echo "[Dockerfile] make clean"; make clean; fi && \
     make
 
 RUN mkdir -p build/static build/pnacl/Release
@@ -19,14 +21,23 @@ RUN pepper_63/toolchain/linux_pnacl/bin/pnacl-translate \
     moonlight-tizen-nacl/pnacl/Release/moonlight-chrome.pexe \
     -o build/pnacl/Release/moonlight-chrome-arm.nexe
 
+# BUILD_VERSION is declared late so changing it does not invalidate the make cache.
+ARG BUILD_VERSION=dev
 RUN cp -r moonlight-tizen-nacl/index.html \
          moonlight-tizen-nacl/config.xml \
          moonlight-tizen-nacl/icons/icon128.png \
-         moonlight-tizen-nacl/*.nmf \
          build/ && \
     cp -r moonlight-tizen-nacl/static/* build/static/ && \
     mv build/icon128.png build/icon.png && \
-    mv build/*.nmf build/pnacl/Release/
+    sed -i "s|__BUILD_VERSION__|${BUILD_VERSION}|g" build/index.html && \
+    printf '%s\n' \
+      '{' \
+      '  "program": {' \
+      '    "arm": {' \
+      '      "url": "moonlight-chrome-arm.nexe"' \
+      '    }' \
+      '  }' \
+      '}' > build/pnacl/Release/moonlight-chrome.nmf
 
 RUN echo \
     'set timeout -1\n' \

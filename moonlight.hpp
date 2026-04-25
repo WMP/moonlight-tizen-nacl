@@ -106,6 +106,9 @@ class MoonlightInstance : public pp::Instance, public pp::MouseLock {
         void HandleOpenURL(int32_t callbackId, pp::VarArray args);
         void HandleSTUN(int32_t callbackId, pp::VarArray args);
         void HandleSetGamepadInputEnabled(int32_t callbackId, pp::VarArray args);
+        void ResetGamepadState(bool resetConnectedState, const char* reason);
+        void SetGamepadInputEnabledState(bool enabled, const char* reason);
+        void SetGamepadStreamState(bool active, const char* reason);
         void PairCallback(int32_t /*result*/, int32_t callbackId, pp::VarArray args);
         void STUNCallback(int32_t /*result*/, int32_t callbackId, pp::VarArray args);
     
