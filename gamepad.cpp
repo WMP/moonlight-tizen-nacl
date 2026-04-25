@@ -56,6 +56,7 @@ static const unsigned short k_BTGamepadButtonMapping[] = {
 static bool s_padSeen[4] = {false, false, false, false};
 static bool s_isTizenBT[4] = {false, false, false, false};
 static bool s_connectedLast[4] = {false, false, false, false};
+static bool s_arrivalSent[4] = {false, false, false, false};
 static unsigned int s_debugCounter[4] = {0, 0, 0, 0};
 static unsigned int s_sameTimestampCount[4] = {0, 0, 0, 0};
 
@@ -496,6 +497,7 @@ void MoonlightInstance::PollGamepads() {
                 s_padSeen[p] = false;
                 s_isTizenBT[p] = false;
                 s_connectedLast[p] = false;
+                s_arrivalSent[p] = false;
                 s_debugCounter[p] = 0;
                 s_sameTimestampCount[p] = 0;
                 m_LastPadTimestamps[p] = 0.0;
@@ -719,7 +721,25 @@ void MoonlightInstance::PollGamepads() {
 #endif
 
         if (m_GamepadInputEnabled) {
-            LiSendMultiControllerEvent(controllerIndex, activeGamepadMask,
+            if (p < 4 && !s_arrivalSent[p]) {
+                s_arrivalSent[p] = true;
+                int arrResult = LiSendControllerArrivalEvent(
+                    controllerIndex,
+                    activeGamepadMask,
+                    LI_CTYPE_XBOX,
+                    0xFFFF,
+                    LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE);
+#if GAMEPAD_DEBUG
+                std::ostringstream arrSs;
+                arrSs << "ARRIVAL slot=" << p
+                      << " ci=" << controllerIndex
+                      << " mask=0x" << std::hex << static_cast<unsigned int>(activeGamepadMask)
+                      << " result=" << std::dec << arrResult;
+                DebugPostMessage(arrSs.str());
+#endif
+            }
+
+            int liResult = LiSendMultiControllerEvent(controllerIndex, activeGamepadMask,
                 buttonFlags,
                 leftTrigger,
                 rightTrigger,
@@ -727,6 +747,15 @@ void MoonlightInstance::PollGamepads() {
                 leftStickY,
                 rightStickX,
                 rightStickY);
+#if GAMEPAD_DEBUG
+            if (p < 4 && liResult != 0) {
+                std::ostringstream errSs;
+                errSs << "SEND_ERR slot=" << p
+                      << " ci=" << controllerIndex
+                      << " result=" << liResult;
+                DebugPostMessage(errSs.str());
+            }
+#endif
         }
 
         controllerIndex++;
