@@ -6,6 +6,9 @@
 #include "ppapi/lib/gl/gles2/gl2ext_ppapi.h"
 
 #include <h264_stream.h>
+#include <string>
+#include <sstream>
+#include <sys/time.h>
 
 #define INITIAL_DECODE_BUFFER_LEN 128 * 1024
 
@@ -15,6 +18,14 @@ static int s_LastTextureType;
 static int s_LastTextureId;
 static bool s_FirstFrameDisplayed;
 static uint64_t s_LastPaintFinishedTime;
+static uint64_t s_DecodeSubmitTime;
+static unsigned int s_FrameCount;
+
+static uint64_t GetMillis() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
 
 #define assertNoGLError() assert(!glGetError())
 
@@ -145,6 +156,8 @@ int MoonlightInstance::VidDecSetup(int videoFormat, int width, int height, int r
     s_LastTextureType = 0;
     s_LastTextureId = 0;
     s_FirstFrameDisplayed = false;
+    s_DecodeSubmitTime = 0;
+    s_FrameCount = 0;
     
     int32_t err;
 
@@ -161,7 +174,10 @@ int MoonlightInstance::VidDecSetup(int videoFormat, int width, int height, int r
         err = PP_ERROR_NOTSUPPORTED;
     }
 
-    if (err == PP_ERROR_NOTSUPPORTED) {
+    if (err == PP_OK) {
+        g_Instance->PostMessage(pp::Var("padDebug: VIDDEC: HW decode OK (H264High)"));
+    }
+    else if (err == PP_ERROR_NOTSUPPORTED) {
         // Fallback to software decoding
         err = g_Instance->m_VideoDecoder->Initialize(
            g_Instance->m_Graphics3D,
@@ -179,7 +195,17 @@ int MoonlightInstance::VidDecSetup(int videoFormat, int width, int height, int r
         else if (!(drFlags & DR_FLAG_FORCE_SW_DECODE)) {
             // Tell the user we had to fall back
             ClDisplayTransientMessage("Hardware decoding is unavailable. Falling back to CPU decoding");
+            g_Instance->PostMessage(pp::Var("padDebug: VIDDEC: HW unavailable, using SW decode (H264High)"));
         }
+        else {
+            g_Instance->PostMessage(pp::Var("padDebug: VIDDEC: SW decode forced (H264High)"));
+        }
+    }
+    else {
+        std::string errMsg = "padDebug: VIDDEC: HW decode init failed err=" + std::to_string(err);
+        g_Instance->PostMessage(pp::Var(errMsg));
+        g_Instance->StopConnection();
+        return -1;
     }
     
     pp::Module::Get()->core()->CallOnMainThread(0,
@@ -277,6 +303,7 @@ int MoonlightInstance::VidDecSubmitDecodeUnit(PDECODE_UNIT decodeUnit) {
     }
     
     // Start the decoding
+    s_DecodeSubmitTime = GetMillis();
     uint32_t packedMillis = ProfilerGetPackedMillis();
     g_Instance->m_VideoDecoder->Decode(packedMillis, offset, s_DecodeBuffer, pp::BlockUntilComplete());
     ProfilerPrintPackedDeltaFromNow("Decode (blocking)", packedMillis);
@@ -415,7 +442,16 @@ void MoonlightInstance::PictureReady(int32_t result, PP_VideoPicture picture) {
     }
     
     ProfilerPrintPackedDeltaFromNow("Decode -> PictureReady", picture.decode_id);
-    
+
+    s_FrameCount++;
+    if (s_FrameCount % 60 == 0 && s_DecodeSubmitTime > 0) {
+        uint64_t delta = GetMillis() - s_DecodeSubmitTime;
+        std::ostringstream ss;
+        ss << "VIDDEC: frame=" << s_FrameCount
+           << " decode_to_ready=" << delta << "ms";
+        g_Instance->PostMessage(pp::Var("padDebug: " + ss.str()));
+    }
+
     // Free a picture if there's one the renderer hasn't consumed yet
     if (m_HasNextPicture) {
         ProfilerPrintWarning("Decoder is outpacing renderer!");
