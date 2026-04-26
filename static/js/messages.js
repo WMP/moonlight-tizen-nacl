@@ -64,6 +64,12 @@ function handleMessage(msg) {
           break;
       }
 
+      // Restore menu controller navigation that playGameMode() stopped.
+      isInGame = false;
+      if (typeof Controller !== 'undefined') {
+        Controller.startWatching();
+      }
+
       api.refreshServerInfo().then(function(ret) {
         // Return to app list with new currentgame
         showApps(api);

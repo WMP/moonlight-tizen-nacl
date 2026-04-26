@@ -58,14 +58,23 @@ static bool s_isTizenBT[4] = {false, false, false, false};
 static bool s_connectedLast[4] = {false, false, false, false};
 static bool s_arrivalSent[4] = {false, false, false, false};
 static int  s_arrivalSettleCount[4] = {0, 0, 0, 0};
-// Tracks whether a proactive (pre-pad) arrival was sent at stream start.
-// Not cleared by ResetGamepadState so the ViGEm slot stays warm.
-static bool s_proactiveArrivalDone[4] = {false, false, false, false};
-static bool s_inputActiveLast[4] = {false, false, false, false};
 static bool s_gamepadInputEnabled = true;
 static bool s_streamActive = false;
 static unsigned int s_debugCounter[4] = {0, 0, 0, 0};
 static unsigned int s_sameTimestampCount[4] = {0, 0, 0, 0};
+
+struct ControllerState {
+    int buttonFlags;
+    unsigned char leftTrigger;
+    unsigned char rightTrigger;
+    short leftStickX;
+    short leftStickY;
+    short rightStickX;
+    short rightStickY;
+};
+
+static ControllerState s_lastSentState[4] = {};
+static bool s_hasLastSentState[4] = {false, false, false, false};
 
 static void DebugPostMessage(const std::string& msg);
 
@@ -97,6 +106,16 @@ static float ApplyDeadZone(float value) {
     return value;
 }
 
+static bool StateChangedEnough(const ControllerState& a, const ControllerState& b) {
+    return a.buttonFlags != b.buttonFlags ||
+           a.leftTrigger != b.leftTrigger ||
+           a.rightTrigger != b.rightTrigger ||
+           a.leftStickX != b.leftStickX ||
+           a.leftStickY != b.leftStickY ||
+           a.rightStickX != b.rightStickX ||
+           a.rightStickY != b.rightStickY;
+}
+
 static unsigned int GetSafeButtonCount(const PP_GamepadSampleData& padData) {
     const unsigned int buttonCapacity =
         sizeof(padData.buttons) / sizeof(padData.buttons[0]);
@@ -115,6 +134,7 @@ static unsigned int GetSafeAxisCount(const PP_GamepadSampleData& padData) {
         axisCapacity;
 }
 
+#if GAMEPAD_DEBUG
 static bool HasMappedInput(
     int buttonFlags,
     unsigned char leftTrigger,
@@ -132,6 +152,7 @@ static bool HasMappedInput(
            rightStickX != 0 ||
            rightStickY != 0;
 }
+#endif
 
 static bool SendControllerArrivalEventWithLog(
     unsigned int slot,
@@ -563,7 +584,8 @@ void MoonlightInstance::ResetGamepadState(bool resetConnectedState, const char* 
     for (int i = 0; i < 4; i++) {
         s_arrivalSent[i] = false;
         s_arrivalSettleCount[i] = 0;
-        s_inputActiveLast[i] = false;
+        s_hasLastSentState[i] = false;
+        s_lastSentState[i] = ControllerState();
         s_debugCounter[i] = 0;
         s_sameTimestampCount[i] = 0;
         m_LastPadTimestamps[i] = 0.0;
@@ -618,13 +640,6 @@ void MoonlightInstance::SetGamepadInputEnabledState(bool enabled, const char* re
 void MoonlightInstance::SetGamepadStreamState(bool active, const char* reason) {
     s_streamActive = active;
 
-    if (!active) {
-        // Clear proactive flags when stream ends so next stream starts fresh.
-        for (int i = 0; i < 4; i++) {
-            s_proactiveArrivalDone[i] = false;
-        }
-    }
-
 #if GAMEPAD_DEBUG
     std::ostringstream ss;
 
@@ -668,28 +683,6 @@ void MoonlightInstance::PollGamepads() {
     m_GamepadApi->Sample(pp_instance(), &gamepadData);
     activeGamepadMask = GetActiveGamepadMask(gamepadData);
 
-    // Send a proactive arrival for slot 0 at stream start (before any pad
-    // connects) so ViGEm is fully initialised when the pad later shows up.
-    // Sunshine can handle a "re-arrival" for a slot that is already registered,
-    // so the later real arrival (sent when the pad connects) simply refreshes
-    // the entry rather than triggering a new device creation mid-stream.
-    if (s_streamActive && !s_proactiveArrivalDone[0]) {
-        s_proactiveArrivalDone[0] = true;
-        int proactiveResult = LiSendControllerArrivalEvent(
-            0, 0x0, LI_CTYPE_XBOX, 0xFFFF,
-            LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE);
-
-#if GAMEPAD_DEBUG
-        std::ostringstream preSs;
-        preSs << "PROACTIVE_ARRIVAL slot=0 result=" << proactiveResult
-              << " stream=" << (s_streamActive ? 1 : 0)
-              << " input=" << (s_gamepadInputEnabled ? 1 : 0);
-        DebugPostMessage(preSs.str());
-        printf("[PADDBG] %s\n", preSs.str().c_str());
-        fflush(stdout);
-#endif
-    }
-
     for (unsigned int p = 0; p < gamepadData.length; p++) {
         PP_GamepadSampleData& padData = gamepadData.items[p];
         const unsigned int safeButtonCount = GetSafeButtonCount(padData);
@@ -708,7 +701,8 @@ void MoonlightInstance::PollGamepads() {
                 s_connectedLast[p] = false;
                 s_arrivalSent[p] = false;
                 s_arrivalSettleCount[p] = 0;
-                s_inputActiveLast[p] = false;
+                s_hasLastSentState[p] = false;
+                s_lastSentState[p] = ControllerState();
                 s_debugCounter[p] = 0;
                 s_sameTimestampCount[p] = 0;
                 m_LastPadTimestamps[p] = 0.0;
@@ -726,7 +720,8 @@ void MoonlightInstance::PollGamepads() {
             s_sameTimestampCount[p] = 0;
             s_arrivalSent[p] = false;
             s_arrivalSettleCount[p] = 0;
-            s_inputActiveLast[p] = false;
+            s_hasLastSentState[p] = false;
+            s_lastSentState[p] = ControllerState();
             m_LastPadTimestamps[p] = 0.0;
             s_connectedLast[p] = true;
 
@@ -941,34 +936,27 @@ void MoonlightInstance::PollGamepads() {
 #endif
 
         if (m_GamepadInputEnabled) {
-            bool hasMappedInput = HasMappedInput(
-                buttonFlags,
-                leftTrigger,
-                rightTrigger,
-                leftStickX,
-                leftStickY,
-                rightStickX,
-                rightStickY);
-            bool inputEdge = false;
-
-            if (p < 4) {
-                inputEdge = hasMappedInput && !s_inputActiveLast[p];
+            // Log pending arrival state only once (before it is sent).
+            // Logging every poll cycle at 200 Hz floods the PostMessage pipe.
 #if GAMEPAD_DEBUG
+            if (p < 4 && !s_arrivalSent[p]) {
+                bool hasMappedInputForLog = HasMappedInput(
+                    buttonFlags, leftTrigger, rightTrigger,
+                    leftStickX, leftStickY, rightStickX, rightStickY);
                 std::ostringstream checkSs;
                 checkSs << "ARRIVAL_CHECK"
                         << " slot=" << p
                         << " controllerIndex=" << controllerIndex
-                        << " sent=" << (s_arrivalSent[p] ? 1 : 0)
+                        << " sent=0"
                         << " settle=" << s_arrivalSettleCount[p]
-                        << " hasInput=" << (hasMappedInput ? 1 : 0)
-                        << " inputEdge=" << (inputEdge ? 1 : 0)
+                        << " hasInput=" << (hasMappedInputForLog ? 1 : 0)
                         << " mask=0x" << std::hex << static_cast<unsigned int>(activeGamepadMask)
                         << std::dec
                         << " stream=" << (s_streamActive ? 1 : 0)
                         << " input=" << (s_gamepadInputEnabled ? 1 : 0);
                 DebugPostMessage(checkSs.str());
-#endif
             }
+#endif
 
             // Send arrival as soon as stream is active and pad is connected,
             // BEFORE any state events. After arrival we hold off state events
@@ -1010,6 +998,25 @@ void MoonlightInstance::PollGamepads() {
                 continue;
             }
 
+            // State-change filter: skip sending when controller state is
+            // identical to the last sent state. The first send after an
+            // arrival/reset always goes through (s_hasLastSentState is false).
+            if (p < 4 && s_hasLastSentState[p]) {
+                ControllerState current;
+                current.buttonFlags = buttonFlags;
+                current.leftTrigger = leftTrigger;
+                current.rightTrigger = rightTrigger;
+                current.leftStickX = leftStickX;
+                current.leftStickY = leftStickY;
+                current.rightStickX = rightStickX;
+                current.rightStickY = rightStickY;
+
+                if (!StateChangedEnough(current, s_lastSentState[p])) {
+                    controllerIndex++;
+                    continue;
+                }
+            }
+
             int liResult = LiSendMultiControllerEvent(controllerIndex, activeGamepadMask,
                 buttonFlags,
                 leftTrigger,
@@ -1018,32 +1025,45 @@ void MoonlightInstance::PollGamepads() {
                 leftStickY,
                 rightStickX,
                 rightStickY);
-#if GAMEPAD_DEBUG
-            if (hasMappedInput || liResult != 0) {
-                std::ostringstream sendSs;
-                sendSs << "LiSendMultiControllerEvent"
-                       << " slot=" << p
-                       << " controllerIndex=" << controllerIndex
-                       << " mask=0x" << std::hex << static_cast<unsigned int>(activeGamepadMask)
-                       << " flags=0x" << static_cast<unsigned int>(buttonFlags) << std::dec
-                       << " LT=" << static_cast<unsigned int>(leftTrigger)
-                       << " RT=" << static_cast<unsigned int>(rightTrigger)
-                       << " LS=(" << leftStickX << "," << leftStickY << ")"
-                       << " RS=(" << rightStickX << "," << rightStickY << ")"
-                       << " phase=state"
-                       << " result=" << liResult
-                       << " stream=" << (s_streamActive ? 1 : 0)
-                       << " input=" << (s_gamepadInputEnabled ? 1 : 0);
-                DebugPostMessage(sendSs.str());
-
-                printf("[PADDBG] %s\n", sendSs.str().c_str());
-                fflush(stdout);
-            }
-#endif
 
             if (p < 4) {
-                s_inputActiveLast[p] = hasMappedInput;
+                s_lastSentState[p].buttonFlags = buttonFlags;
+                s_lastSentState[p].leftTrigger = leftTrigger;
+                s_lastSentState[p].rightTrigger = rightTrigger;
+                s_lastSentState[p].leftStickX = leftStickX;
+                s_lastSentState[p].leftStickY = leftStickY;
+                s_lastSentState[p].rightStickX = rightStickX;
+                s_lastSentState[p].rightStickY = rightStickY;
+                s_hasLastSentState[p] = true;
             }
+
+#if GAMEPAD_DEBUG
+            {
+                bool hasMappedInput = HasMappedInput(
+                    buttonFlags, leftTrigger, rightTrigger,
+                    leftStickX, leftStickY, rightStickX, rightStickY);
+                if (hasMappedInput || liResult != 0) {
+                    std::ostringstream sendSs;
+                    sendSs << "LiSendMultiControllerEvent"
+                           << " slot=" << p
+                           << " controllerIndex=" << controllerIndex
+                           << " mask=0x" << std::hex << static_cast<unsigned int>(activeGamepadMask)
+                           << " flags=0x" << static_cast<unsigned int>(buttonFlags) << std::dec
+                           << " LT=" << static_cast<unsigned int>(leftTrigger)
+                           << " RT=" << static_cast<unsigned int>(rightTrigger)
+                           << " LS=(" << leftStickX << "," << leftStickY << ")"
+                           << " RS=(" << rightStickX << "," << rightStickY << ")"
+                           << " phase=state"
+                           << " result=" << liResult
+                           << " stream=" << (s_streamActive ? 1 : 0)
+                           << " input=" << (s_gamepadInputEnabled ? 1 : 0);
+                    DebugPostMessage(sendSs.str());
+
+                    printf("[PADDBG] %s\n", sendSs.str().c_str());
+                    fflush(stdout);
+                }
+            }
+#endif
         }
 
         controllerIndex++;

@@ -36,8 +36,6 @@ class MoonlightModule : public pp::Module {
 };
 
 void MoonlightInstance::OnConnectionStarted(uint32_t unused) {
-    ResetGamepadState(true, "connection_started_main");
-
     // Tell the front end
     pp::Var response("Connection Established");
     PostMessage(response);
