@@ -243,6 +243,23 @@
                         </div>
 
                         <div class="nav-menu-parent">
+                            <button
+                                id="logEndpointBtn"
+                                class="mdl-button mdl-js-button"
+                                type="button"
+                            >
+                                LOG: OFF
+                            </button>
+                            <div
+                                id="logEndpointTooltip"
+                                class="mdl-tooltip"
+                                for="logEndpointBtn"
+                            >
+                                Debug log server URL
+                            </div>
+                        </div>
+
+                        <div class="nav-menu-parent">
                             <label
                                 id="gamepadInputBtn"
                                 class="mdl-icon-toggle mdl-js-icon-toggle mdl-js-ripple-effect"
@@ -339,6 +356,50 @@
             type="text/javascript"
             src="static/js/mdns-browser/main.js"
         ></script>
+        <dialog id="logEndpointDialog" class="mdl-dialog">
+            <h3 class="mdl-dialog__title">Debug Log Server</h3>
+            <div class="mdl-dialog__content">
+                <p>
+                    Enter the URL of the log server running on your PC
+                    (e.g. <code>http://192.168.1.100:8765/log</code>).
+                    Leave blank to disable remote logging.
+                </p>
+                <div class="mdl-textfield mdl-js-textfield" style="width:100%">
+                    <input
+                        class="mdl-textfield__input"
+                        type="url"
+                        id="dialogInputLogEndpoint"
+                    />
+                    <label class="mdl-textfield__label" for="dialogInputLogEndpoint"
+                        >http://&lt;PC_IP&gt;:8765/log</label
+                    >
+                </div>
+            </div>
+            <div class="mdl-dialog__actions">
+                <button
+                    type="button"
+                    class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored mdl-js-ripple-effect"
+                    id="saveLogEndpoint"
+                >
+                    Save
+                </button>
+                <button
+                    type="button"
+                    class="mdl-button mdl-js-button"
+                    id="clearLogEndpoint"
+                >
+                    Disable
+                </button>
+                <button
+                    type="button"
+                    class="mdl-button mdl-js-button"
+                    id="cancelLogEndpoint"
+                >
+                    Cancel
+                </button>
+            </div>
+        </dialog>
+
         <dialog id="pairingDialog" class="mdl-dialog">
             <h3 class="mdl-dialog__title">Pairing</h3>
             <div class="mdl-dialog__content">
@@ -452,7 +513,7 @@
             (function () {
                 var LOG_ENDPOINT =
                     window.localStorage.getItem("moonlightPadLogEndpoint") ||
-                    "http://192.168.123.69:8765/log";
+                    "";
                 var DEBUG_SOURCE_KEY = "moonlightPadDebugSource";
                 var DEBUG_SOURCE_DEFAULT = "EVENTS";
                 var DEBUG_SOURCE_ALL = "ALL";
@@ -748,13 +809,69 @@
                     }
                 }
 
+                function updateLogEndpointBtn() {
+                    var btn = document.getElementById("logEndpointBtn");
+                    if (!btn) return;
+                    if (LOG_ENDPOINT) {
+                        try {
+                            btn.textContent = "LOG: " + new URL(LOG_ENDPOINT).host;
+                        } catch (e) {
+                            btn.textContent = "LOG: ON";
+                        }
+                    } else {
+                        btn.textContent = "LOG: OFF";
+                    }
+                }
+
+                function initLogEndpointDialog() {
+                    var btn = document.getElementById("logEndpointBtn");
+                    var dialog = document.getElementById("logEndpointDialog");
+                    var input = document.getElementById("dialogInputLogEndpoint");
+                    var saveBtn = document.getElementById("saveLogEndpoint");
+                    var clearBtn = document.getElementById("clearLogEndpoint");
+                    var cancelBtn = document.getElementById("cancelLogEndpoint");
+
+                    if (!btn || !dialog) return;
+
+                    updateLogEndpointBtn();
+
+                    btn.addEventListener("click", function () {
+                        input.value = LOG_ENDPOINT || "";
+                        dialog.showModal();
+                    });
+
+                    saveBtn.addEventListener("click", function () {
+                        var url = input.value.trim();
+                        LOG_ENDPOINT = url;
+                        if (url) {
+                            window.localStorage.setItem("moonlightPadLogEndpoint", url);
+                        } else {
+                            window.localStorage.removeItem("moonlightPadLogEndpoint");
+                        }
+                        updateLogEndpointBtn();
+                        dialog.close();
+                    });
+
+                    clearBtn.addEventListener("click", function () {
+                        LOG_ENDPOINT = "";
+                        window.localStorage.removeItem("moonlightPadLogEndpoint");
+                        updateLogEndpointBtn();
+                        dialog.close();
+                    });
+
+                    cancelBtn.addEventListener("click", function () {
+                        dialog.close();
+                    });
+                }
+
                 function boot() {
                     var buildVersion = "__BUILD_VERSION__";
                     show("JS GAMEPAD DEBUG BOOTED\nwaiting for input...");
+                    initLogEndpointDialog();
                     if (window.remotePadDebugLog) {
                         window.remotePadDebugLog(
                             "JS",
-                            "BOOT\nendpoint=" + LOG_ENDPOINT + "\nbuild=" + buildVersion,
+                            "BOOT\nendpoint=" + (LOG_ENDPOINT || "disabled") + "\nbuild=" + buildVersion,
                             "boot|" + LOG_ENDPOINT + "|" + buildVersion,
                         );
                     }
