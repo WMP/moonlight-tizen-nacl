@@ -107,14 +107,32 @@ typedef struct {
   uint32_t framerate_den;     /* +32 */
 } esplusplayer_video_stream_info;
 
-/* Layout taken from [PUB]; add_audio_stream_info was not analysed in detail. */
+/* Passed unchanged to AudioStream::SetMimeType. Switch in AudioStream::SetMimeType_
+ * [ASM 0x324dc, tbh indexed by value-1] maps the TV's audio mime enum. NOTE: the
+ * TV order DIFFERS from public 0.0.3 - it inserts DTS=7, so OPUS=8 (not 7).
+ * Confirmed values: 1 AAC, 2 MP2, 3 MP3, 4 AC3, 5 EAC3, 6 VORBIS, 7 DTS,
+ * 8 OPUS (audio/x-opus), 9.. PCM variants (audio/x-raw). */
+typedef enum {
+  ESPLUSPLAYER_AUDIO_MIME_TYPE_UNKNOWN = 0,
+  ESPLUSPLAYER_AUDIO_MIME_TYPE_AAC = 1,
+  ESPLUSPLAYER_AUDIO_MIME_TYPE_MP2 = 2,
+  ESPLUSPLAYER_AUDIO_MIME_TYPE_MP3 = 3,
+  ESPLUSPLAYER_AUDIO_MIME_TYPE_AC3 = 4,
+  ESPLUSPLAYER_AUDIO_MIME_TYPE_EAC3 = 5,
+  ESPLUSPLAYER_AUDIO_MIME_TYPE_VORBIS = 6,
+  ESPLUSPLAYER_AUDIO_MIME_TYPE_DTS = 7,
+  ESPLUSPLAYER_AUDIO_MIME_TYPE_OPUS = 8,
+} esplusplayer_audio_mime_type;
+
+/* 24 bytes. Offsets confirmed by the dlog strings "from->bitrate/channels/
+ * sample_rate/codec_data_length" and loads [r1,#0..#20]  [ASM 0x342f8]. */
 typedef struct {
-  char *codec_data;
-  uint32_t codec_data_length;
-  uint32_t mime_type;
-  uint32_t bitrate;
-  uint32_t channels;
-  uint32_t sample_rate;
+  char *codec_data;           /* +0  */
+  uint32_t codec_data_length; /* +4  */
+  uint32_t mime_type;         /* +8  esplusplayer_audio_mime_type */
+  uint32_t bitrate;           /* +12 */
+  uint32_t channels;          /* +16 */
+  uint32_t sample_rate;       /* +20 */
 } esplusplayer_audio_stream_info;
 
 /* Reads [r1,#0] type, [r1,#4] buffer, [r1,#8] size, ldrd [r1,#16] pts,
@@ -132,8 +150,10 @@ typedef struct {
 
 #ifdef __cplusplus
 static_assert(sizeof(esplusplayer_video_stream_info) == 36, "layout");
+static_assert(sizeof(esplusplayer_audio_stream_info) == 24, "layout");
 #else
 _Static_assert(sizeof(esplusplayer_video_stream_info) == 36, "layout");
+_Static_assert(sizeof(esplusplayer_audio_stream_info) == 24, "layout");
 _Static_assert(__builtin_offsetof(esplusplayer_es_packet, pts) == 16, "layout");
 _Static_assert(__builtin_offsetof(esplusplayer_es_packet, duration) == 24, "layout");
 #endif
