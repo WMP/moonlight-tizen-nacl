@@ -112,12 +112,30 @@ Uruchomienie: `mlclient <host-ip> <appid> [w h fps bitrate]`, env `MOONLIGHT_PIN
 **UWAGA: `gs_client.c` nie jest testowany end-to-end** - wymaga hosta Sunshine/GFE
 w LAN. URL-e, parametry i nazwy pól odwzorowane 1:1 z moonlight-embedded.
 
+## Milestone 3 - wejście (NA SUCHO, 2026-11-01)
+
+`native/mlclient/input_evdev.c`: czyta `/dev/input/event*` przez `<linux/input.h>`
+(stabilne ABI jądra, bez EFL) w osobnym wątku i przekazuje do moonlight-common-c:
+- klawiatura -> `LiSendKeyboardEvent` (mapa Linux KEY_* -> Windows VK, modyfikatory),
+- mysz -> `LiSendMouseMoveEvent`/`LiSendMouseButtonEvent`/`LiSendScrollEvent`,
+- pad -> `LiSendMultiControllerEvent` (przyciski, sticki, triggery, d-pad/HAT).
+Fallback dla starych nagłówków jądra (brak `BTN_SOUTH` itd.). `main.c` wywołuje
+`input_init()` po `LiStartConnection`, `input_shutdown()` przy wyjściu.
+Buduje się i linkuje w pełny klient (0 ostrzeżeń).
+
+**UWAGA: nieprzetestowane na TV.** Do sprawdzenia: czy pilot TV pojawia się na
+evdev (czy przez CEC/uinput) - `input_init()` loguje nazwy urządzeń. Mapa klawiszy
+pokrywa typowe klawisze (shortcut: rozszerzyć `map_vk()` w razie potrzeby).
+Dostęp do `/dev/input` wymaga uprawnień/roota.
+
 ## Dalej
 
-- M1 krok 4: test na TV z hostem Sunshine - parowanie + obraz na ekranie z /tmp.
-- M2: audio (opus -> esplusplayer/PulseAudio), M3: wejście (pilot/evdev).
+- M1 krok 4: test na TV z hostem Sunshine - parowanie + obraz + wejście z /tmp.
+- M2: audio (opus -> esplusplayer/PulseAudio) - struktury audio esplusplayer
+  jeszcze niezdeasemblowane.
 - Do potwierdzenia na realnym strumieniu: poprawność `opensslconf.h`, flagi
-  `OPENSSL_NO_*` TV, zachowanie rikey/parowania, odpowiednik `kUltraLow`.
+  `OPENSSL_NO_*` TV, zachowanie rikey/parowania, odpowiednik `kUltraLow`,
+  routing pilota (evdev vs CEC).
 
 Niewiadome do potwierdzenia: odpowiednik EMSS `LatencyMode::kUltraLow` w
 esplusplayer (brak `set_low_latency_mode` w eksportach - szukać w ustawieniach

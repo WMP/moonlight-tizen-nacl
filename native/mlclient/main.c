@@ -22,6 +22,8 @@
 
 extern int ml_cert_init(const char *dir);
 extern void VidEsplus_FillCallbacks(PDECODER_RENDERER_CALLBACKS cb);
+extern int input_init(void);      /* input_evdev.c */
+extern void input_shutdown(void);
 /* gs_client.c: serverinfo -> pair -> launch -> RTSP url; fills sc->remoteInputAes*
  * and si->serverInfoAppVersion/GfeVersion/rtspSessionUrl. */
 extern int gs_orchestrate(const char *host, unsigned short httpPort, unsigned short httpsPort,
@@ -101,8 +103,11 @@ int main(int argc, char **argv) {
   int err = LiStartConnection(&si, &sc, &cl, &dr, &ar, NULL, 0, NULL, 0);
   if (err != 0) { fprintf(stderr, "[ml] LiStartConnection failed: %d\n", err); return 1; }
 
+  if (input_init() != 0) fprintf(stderr, "[ml] input disabled (no evdev access)\n");
+
   fprintf(stderr, "[ml] streaming; Ctrl+C to stop\n");
   while (!g_quit) pause();
+  input_shutdown();
   LiStopConnection();
   return 0;
 }
