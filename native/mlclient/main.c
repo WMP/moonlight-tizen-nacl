@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "Limelight.h"
@@ -28,16 +29,21 @@ extern void input_shutdown(void);
 /* gs_client.c: serverinfo -> pair -> launch -> RTSP url; fills sc->remoteInputAes*
  * and si->serverInfoAppVersion/GfeVersion/rtspSessionUrl. */
 extern int gs_orchestrate(const char *host, unsigned short httpPort, unsigned short httpsPort,
-                          int appId, const char *pin, STREAM_CONFIGURATION *sc, SERVER_INFORMATION *si);
+                          int appId, const char *pin, STREAM_CONFIGURATION *sc, SERVER_INFORMATION *si,
+                          const char *datadir);
+
+static volatile sig_atomic_t g_quit;
+static void on_sig(int s) { (void)s; g_quit = 1; }
 
 static void cl_stageFailed(int stage, int errorCode) { fprintf(stderr, "[ml] stage %d FAILED err=%d\n", stage, errorCode); }
-static void cl_connTerminated(int errorCode) { fprintf(stderr, "[ml] connection terminated err=%d\n", errorCode); }
+/* When the host drops the stream (e.g. "lack of video traffic"), quit so main
+   runs LiStopConnection -> the video sink's cleanup releases the HW overlay.
+   Without this the client hangs holding the overlay and blocks the TV's own
+   broadcast video until another app cycles the plane. */
+static void cl_connTerminated(int errorCode) { fprintf(stderr, "[ml] connection terminated err=%d\n", errorCode); g_quit = 1; }
 static void cl_logMessage(const char *format, ...) {
   va_list a; va_start(a, format); vfprintf(stderr, format, a); va_end(a);
 }
-
-static volatile sig_atomic_t g_quit;
-static void on_sig(int s) { (void)s; g_quit = 1; LiStopConnection(); }
 
 int main(int argc, char **argv) {
   if (argc < 3) {
@@ -72,7 +78,7 @@ int main(int argc, char **argv) {
   LiInitializeServerInformation(&si);
   si.address = host;
 
-  if (gs_orchestrate(host, httpPort, httpsPort, appId, pin, &sc, &si) != 0) {
+  if (gs_orchestrate(host, httpPort, httpsPort, appId, pin, &sc, &si, datadir) != 0) {
     fprintf(stderr, "[ml] GameStream orchestration failed; cannot start stream.\n");
     return 3;
   }
@@ -97,8 +103,11 @@ int main(int argc, char **argv) {
   if (input_init() != 0) fprintf(stderr, "[ml] input disabled (no evdev access)\n");
 
   fprintf(stderr, "[ml] streaming; Ctrl+C to stop\n");
-  while (!g_quit) pause();
+  /* poll g_quit (set by SIGINT/SIGTERM or connectionTerminated); pause() would
+     not wake on a flag set from a callback thread. */
+  while (!g_quit) { struct timespec ts = {0, 200000000}; nanosleep(&ts, NULL); }
+  fprintf(stderr, "[ml] stopping, releasing overlay\n");
   input_shutdown();
-  LiStopConnection();
+  LiStopConnection();   /* tears down stages -> video sink cleanup -> esplus_close */
   return 0;
 }

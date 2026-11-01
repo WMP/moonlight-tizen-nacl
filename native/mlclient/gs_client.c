@@ -77,6 +77,18 @@ static void gen_uuid(char *out /* >=37 */) {
           u[0],u[1],u[2],u[3],u[4],u[5],u[6],u[7],u[8],u[9],u[10],u[11],u[12],u[13],u[14],u[15]);
 }
 
+static char *read_all(const char *path) {
+  FILE *f = fopen(path, "rb"); if (!f) return NULL;
+  fseek(f, 0, SEEK_END); long n = ftell(f); rewind(f);
+  char *b = (n > 0) ? malloc(n + 1) : NULL;
+  if (!b || fread(b, 1, n, f) != (size_t)n) { free(b); fclose(f); return NULL; }
+  b[n] = 0; fclose(f); return b;
+}
+static void write_all(const char *path, const char *s) {
+  FILE *f = fopen(path, "wb"); if (!f) return;
+  fwrite(s, 1, strlen(s), f); fclose(f);
+}
+
 /*
  * Fills si (serverInfoAppVersion, serverInfoGfeVersion, rtspSessionUrl,
  * serverCodecModeSupport left to caller) and sc (remoteInputAesKey/Iv).
@@ -85,45 +97,58 @@ static void gen_uuid(char *out /* >=37 */) {
  * Returns GS_OK (0) on success.
  */
 int gs_orchestrate(const char *host, unsigned short httpPort, unsigned short httpsPort,
-                   int appId, const char *pin, STREAM_CONFIGURATION *sc, SERVER_INFORMATION *si) {
+                   int appId, const char *pin, STREAM_CONFIGURATION *sc, SERVER_INFORMATION *si,
+                   const char *datadir) {
   PHTTP_DATA data = http_create_data();
   if (!data) return GS_OUT_OF_MEMORY;
-  char url[4096], uuid[40];
+  char url[4096], uuid[40], certpath[1024];
   char *result = NULL, *server_cert = NULL;
-  int ret;
+  int ret, paired = 0;
+  snprintf(certpath, sizeof certpath, "%s/server.pem", datadir ? datadir : "/tmp");
 
-  /* 1. serverinfo over HTTP (works unpaired) -> major version, pair state. */
-  gen_uuid(uuid);
-  snprintf(url, sizeof url, "http://%s:%u/serverinfo?uniqueid=%s&uuid=%s", host, httpPort, g_UniqueId, uuid);
-  if ((ret = http_request(url, NULL, data)) != GS_OK) { fprintf(stderr, "[gs] serverinfo(http) failed %d\n", ret); goto fail; }
-
-  int serverMajorVersion = 7;
-  if (xml_search(data->memory, data->size, "appversion", &result) == GS_OK) {
-    serverMajorVersion = atoi(result); free(result); result = NULL;
+  /* 1. If we have a stored server cert from a previous pairing, try HTTPS
+     serverinfo pinned to it. Success = already paired (HTTP PairStatus is always
+     0 without a client cert, so it can't be used to detect pairing). */
+  server_cert = read_all(certpath);
+  if (server_cert) {
+    gen_uuid(uuid);
+    snprintf(url, sizeof url, "https://%s:%u/serverinfo?uniqueid=%s&uuid=%s", host, httpsPort, g_UniqueId, uuid);
+    if (http_request(url, server_cert, data) == GS_OK &&
+        xml_search(data->memory, data->size, "appversion", &result) == GS_OK) {
+      paired = 1;
+      si->serverInfoAppVersion = result; result = NULL;
+      if (xml_search(data->memory, data->size, "GfeVersion", &result) == GS_OK) { si->serverInfoGfeVersion = result; result = NULL; }
+      fprintf(stderr, "[gs] already paired (stored server cert)\n");
+    } else {
+      free(server_cert); server_cert = NULL;   /* stale/unpaired - fall through */
+    }
   }
-  int paired = 0;
-  if (xml_search(data->memory, data->size, "PairStatus", &result) == GS_OK) {
-    paired = atoi(result) == 1; free(result); result = NULL;
-  }
-  fprintf(stderr, "[gs] serverMajorVersion=%d paired=%d\n", serverMajorVersion, paired);
 
-  /* 2. pair if needed. User types `pin` on the host. */
+  /* 2. Not paired: HTTP serverinfo for the major version, then pair. */
   if (!paired) {
+    data->size = 0; if (data->memory) data->memory[0] = 0;
+    gen_uuid(uuid);
+    snprintf(url, sizeof url, "http://%s:%u/serverinfo?uniqueid=%s&uuid=%s", host, httpPort, g_UniqueId, uuid);
+    if ((ret = http_request(url, NULL, data)) != GS_OK) { fprintf(stderr, "[gs] serverinfo(http) failed %d\n", ret); goto fail; }
+    int serverMajorVersion = 7;
+    if (xml_search(data->memory, data->size, "appversion", &result) == GS_OK) { serverMajorVersion = atoi(result); free(result); result = NULL; }
+
     if (!pin) { fprintf(stderr, "[gs] host not paired and no PIN given\n"); ret = GS_FAILED; goto fail; }
     fprintf(stderr, "[gs] pairing - enter PIN %s on the host\n", pin);
     if ((ret = gs_pair(serverMajorVersion, host, httpPort, pin, &server_cert)) != GS_OK) {
       fprintf(stderr, "[gs] pairing failed %d\n", ret); goto fail;
     }
     fprintf(stderr, "[gs] paired\n");
-  }
+    if (server_cert) write_all(certpath, server_cert);   /* persist for next run */
 
-  /* 3. serverinfo over HTTPS (pinned) -> app/GFE version for SERVER_INFORMATION. */
-  data->size = 0; if (data->memory) data->memory[0] = 0;
-  gen_uuid(uuid);
-  snprintf(url, sizeof url, "https://%s:%u/serverinfo?uniqueid=%s&uuid=%s", host, httpsPort, g_UniqueId, uuid);
-  if ((ret = http_request(url, server_cert, data)) != GS_OK) { fprintf(stderr, "[gs] serverinfo(https) failed %d\n", ret); goto fail; }
-  if (xml_search(data->memory, data->size, "appversion", &result) == GS_OK) { si->serverInfoAppVersion = result; result = NULL; }
-  if (xml_search(data->memory, data->size, "GfeVersion", &result) == GS_OK) { si->serverInfoGfeVersion = result; result = NULL; }
+    /* serverinfo over HTTPS (pinned) -> app/GFE version. */
+    data->size = 0; if (data->memory) data->memory[0] = 0;
+    gen_uuid(uuid);
+    snprintf(url, sizeof url, "https://%s:%u/serverinfo?uniqueid=%s&uuid=%s", host, httpsPort, g_UniqueId, uuid);
+    if ((ret = http_request(url, server_cert, data)) != GS_OK) { fprintf(stderr, "[gs] serverinfo(https) failed %d\n", ret); goto fail; }
+    if (xml_search(data->memory, data->size, "appversion", &result) == GS_OK) { si->serverInfoAppVersion = result; result = NULL; }
+    if (xml_search(data->memory, data->size, "GfeVersion", &result) == GS_OK) { si->serverInfoGfeVersion = result; result = NULL; }
+  }
 
   /* 4. remote input key (AES) + rikeyid, same derivation as moonlight-embedded. */
   RAND_bytes((unsigned char *)sc->remoteInputAesKey, sizeof sc->remoteInputAesKey);
