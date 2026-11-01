@@ -22,6 +22,7 @@
 
 extern int ml_cert_init(const char *dir);
 extern void VidEsplus_FillCallbacks(PDECODER_RENDERER_CALLBACKS cb);
+extern void AudEsplus_FillCallbacks(PAUDIO_RENDERER_CALLBACKS cb);  /* audio_opus.c */
 extern int input_init(void);      /* input_evdev.c */
 extern void input_shutdown(void);
 /* gs_client.c: serverinfo -> pair -> launch -> RTSP url; fills sc->remoteInputAes*
@@ -34,14 +35,6 @@ static void cl_connTerminated(int errorCode) { fprintf(stderr, "[ml] connection 
 static void cl_logMessage(const char *format, ...) {
   va_list a; va_start(a, format); vfprintf(stderr, format, a); va_end(a);
 }
-
-/* --- audio: stubbed (video-first milestone). Returning success keeps the
-   connection alive; samples are dropped until the audio sink is written. --- */
-static int ar_init(int audioConfig, const POPUS_MULTISTREAM_CONFIGURATION cfg, void *ctx, int flags) {
-  (void)audioConfig; (void)cfg; (void)ctx; (void)flags; return 0;
-}
-static void ar_cleanup(void) {}
-static void ar_decodePlay(char *sampleData, int sampleLength) { (void)sampleData; (void)sampleLength; }
 
 static volatile sig_atomic_t g_quit;
 static void on_sig(int s) { (void)s; g_quit = 1; LiStopConnection(); }
@@ -89,9 +82,7 @@ int main(int argc, char **argv) {
   VidEsplus_FillCallbacks(&dr);
 
   AUDIO_RENDERER_CALLBACKS ar;
-  LiInitializeAudioCallbacks(&ar);
-  ar.init = ar_init; ar.cleanup = ar_cleanup; ar.decodeAndPlaySample = ar_decodePlay;
-  ar.capabilities = CAPABILITY_DIRECT_SUBMIT;
+  AudEsplus_FillCallbacks(&ar);
 
   CONNECTION_LISTENER_CALLBACKS cl;
   LiInitializeConnectionCallbacks(&cl);

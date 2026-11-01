@@ -128,14 +128,36 @@ evdev (czy przez CEC/uinput) - `input_init()` loguje nazwy urządzeń. Mapa klaw
 pokrywa typowe klawisze (shortcut: rozszerzyć `map_vk()` w razie potrzeby).
 Dostęp do `/dev/input` wymaga uprawnień/roota.
 
+## Milestone 2 - audio (NA SUCHO, 2026-11-01)
+
+ABI audio esplusplayer **zdeasemblowane** (patrz `esplusplayer_tv50.h`):
+struktura `audio_stream_info` (24 B, offsety z napisów logów) i enum mime
+(`add_audio`/`SetMimeType_`): **OPUS=8** na TV (nie 7 - TV wstawia DTS=7).
+
+`native/mlclient/esplus_player.c`: jeden wspólny odtwarzacz dla wideo i audio
+(TV pozwala na jeden na proces). Kolejność z Connection.c gwarantuje:
+ar.init (dodaj audio) -> dr.setup (dodaj wideo + okno) -> dr.start (prepare+start)
+-> ar.start. Dzięki temu audio i wideo mają **jeden zegar** (dobra synchronizacja),
+jak ścieżka EMSS forka.
+
+`native/mlclient/audio_opus.c`: `AUDIO_RENDERER_CALLBACKS` - dodaje ścieżkę
+audio/x-opus (OPUS=8), submit pakietów Opus wprost (bez libopus - dekoduje
+GStreamer w esplusplayer), codec_data = OpusHead wg RFC 7845 z
+`OPUS_MULTISTREAM_CONFIGURATION`, PTS liczony z licznika próbek.
+`video_esplus.c` przerobiony na wspólny odtwarzacz. Pełny klient linkuje się.
+
+**UWAGA: nieprzetestowane na TV.** Ryzyko: czy esplusplayer przyjmie OpusHead
+dokładnie tak jako codec_data. Fallback: dekodować libopus (wbudowany) i
+submit audio/x-raw PCM, albo PCM do PulseAudio. (Struktura i OPUS=8 są pewne
+z `.so`; akceptacja OpusHead - nie.)
+
 ## Dalej
 
-- M1 krok 4: test na TV z hostem Sunshine - parowanie + obraz + wejście z /tmp.
-- M2: audio (opus -> esplusplayer/PulseAudio) - struktury audio esplusplayer
-  jeszcze niezdeasemblowane.
+- M1 krok 4: test na TV z hostem Sunshine - parowanie + obraz + audio + wejście z /tmp.
 - Do potwierdzenia na realnym strumieniu: poprawność `opensslconf.h`, flagi
   `OPENSSL_NO_*` TV, zachowanie rikey/parowania, odpowiednik `kUltraLow`,
-  routing pilota (evdev vs CEC).
+  routing pilota (evdev vs CEC), akceptacja OpusHead przez esplusplayer,
+  sekwencja prepare z dwiema ścieżkami.
 
 Niewiadome do potwierdzenia: odpowiednik EMSS `LatencyMode::kUltraLow` w
 esplusplayer (brak `set_low_latency_mode` w eksportach - szukać w ustawieniach
