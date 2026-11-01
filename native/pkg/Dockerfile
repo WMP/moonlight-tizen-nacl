@@ -1,22 +1,25 @@
-# Build image for the hybrid Moonlight Tizen 5.0 package (native service + web UI).
-# Lean: only host build tools + a JRE for the Tizen CLI. The heavy/secret inputs
-# are MOUNTED at run time, not baked in:
-#   /work/repo       - this repo (native/ scripts + sources)
-#   /work/tizen-deps - fetch-tizen-sources.sh output (GCC 6.2 toolchain + Tizen 5.0 sources)
-#   /work/tv-libs    - .so libraries copied from the TV (never committed)
-#   /work/tizen-cli  - Tizen Studio CLI (host ~/tizen-tmp/tools) for package+sign
-#   /work/tizen-profile - signing profile dir (host ~/tizen-tmp-data, has Moonlight.p12)
+# Headless build image for the hybrid Moonlight Tizen 5.0 package. No GUI.
+#
+# Lean on purpose: it carries the build tools + a JRE, but NOT a Tizen Studio
+# install. The Tizen Studio *installer* is a GUI app and cannot run headless, but
+# the Tizen *CLI* is just files and runs headless - so a Tizen Studio directory is
+# MOUNTED at run time instead of installed into the image. Everything else that is
+# heavy or device-specific is mounted too (never committed):
+#   /work/repo        this checkout
+#   /work/mlt         a moonlight-tizen checkout (web UI + moonlight-common-c)
+#   /work/tizen-deps  cross toolchain + Tizen 5.0 sysroot/sources (fetch-tizen-sources.sh)
+#   /work/tv-libs     .so libraries copied from the TV
+#   /work/tizen-cli   a Tizen Studio dir (its tools/ide/bin/tizen runs headless)
 #
 # Build:  podman build -t moonlight-tizen-build native/pkg
-# Run:    see native/pkg/build-package.sh (it wires the mounts and runs the build).
+# Run:    native/pkg/build-package.sh (wires the mounts; see its header)
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 GIT_TERMINAL_PROMPT=0
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl wget git make cmake pkg-config file xz-utils bzip2 \
-      unzip zip rsync python3 \
+      unzip zip rsync python3 libarchive-tools \
       openjdk-17-jre-headless \
-      libarchive-tools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work

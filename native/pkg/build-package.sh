@@ -39,20 +39,30 @@ echo "ui assembled -> $OUT/ui"
 echo "== phase 3: tpk service project ready, wgt ui project ready =="
 echo "service: $OUT/service   ui: $OUT/ui"
 
-echo "== phase 4: package + sign (needs Tizen CLI) =="
-if [ -n "$TIZEN_CLI" ] && [ -x "$TIZEN_CLI/tizen" ]; then
+echo "== phase 4: package + sign =="
+# tizen CLI is on PATH inside the image; allow override for host runs.
+TZ=$(command -v tizen || echo "${TIZEN_CLI:+$TIZEN_CLI/tizen}")
+if [ -n "$TZ" ] && [ -x "$TZ" ]; then
   P=${SIGN_PROFILE:-Moonlight}
-  [ -n "$TIZEN_PROFILE" ] && "$TIZEN_CLI/tizen" cli-config "default.profiles.path=$TIZEN_PROFILE/profile/profiles.xml" >/dev/null 2>&1 || true
+  PWD_=${CERT_PASS:-tizenpkpass}
+  # Use a mounted profile if given; otherwise generate a self-signed dev author
+  # cert + security profile in-container (distributor = bundled Tizen dev cert).
+  if [ -n "$TIZEN_PROFILE" ]; then
+    "$TZ" cli-config "default.profiles.path=$TIZEN_PROFILE/profile/profiles.xml" >/dev/null 2>&1 || true
+  elif ! "$TZ" security-profiles list 2>/dev/null | grep -q "^$P\b"; then
+    echo "generating dev signing profile '$P' in-container"
+    mkdir -p "$OUT/certs"
+    "$TZ" certificate -a "$P" -p "$PWD_" -c PL -n Moonlight -- "$OUT/certs"
+    "$TZ" security-profiles add -n "$P" -a "$OUT/certs/author.p12" -p "$PWD_"
+  fi
   # web wgt (UI)
-  "$TIZEN_CLI/tizen" build-web -- "$OUT/ui" || true
-  "$TIZEN_CLI/tizen" package -t wgt -s "$P" -- "$OUT/ui"
+  "$TZ" build-web -- "$OUT/ui" || true
+  "$TZ" package -t wgt -s "$P" -- "$OUT/ui"
   # native tpk (engine)
-  "$TIZEN_CLI/tizen" package -t tpk -s "$P" -- "$OUT/service"
+  "$TZ" package -t tpk -s "$P" -- "$OUT/service"
   # hybrid: combine the signed wgt into the tpk package (-r = HybridApp reference)
-  "$TIZEN_CLI/tizen" package -t tpk -r "$(ls "$OUT"/ui/*.wgt 2>/dev/null | head -1)" -s "$P" -- "$OUT/service"
+  "$TZ" package -t tpk -r "$(ls "$OUT"/ui/*.wgt 2>/dev/null | head -1)" -s "$P" -- "$OUT/service"
   echo "package(s):"; ls "$OUT/service"/*.tpk "$OUT/ui"/*.wgt 2>/dev/null
 else
-  echo "TIZEN_CLI not set/executable - skipping package+sign."
-  echo "Install:  TIZEN_CLI=~/tizen-tmp/tools TIZEN_PROFILE=~/tizen-tmp-data \\"
-  echo "          \$TIZEN_CLI/sdb install \$OUT/service/org.moonlight.tizen5-*.tpk"
+  echo "tizen CLI not found - run inside the Docker image (native/pkg/Dockerfile)."
 fi
