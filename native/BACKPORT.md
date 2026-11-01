@@ -39,14 +39,24 @@ Potrzebne były tylko 2 drobne atrapy dla zbędnych odwołań Emscripten w
 
 **Największe ryzyko z planu (czy GCC 6.2 zbuduje rdzeń) - ZDJĘTE.**
 
-## Pozostałe zależności do rozwiązania (krytyczna ścieżka M1)
+## Milestone 1 krok 2 - WYNIK (2026-11-01)
 
-1. **mbedTLS** dla `PlatformCrypto.c` - ~20 funkcji z modułów cipher/ctr_drbg/
-   entropy. mbedTLS to przenośny C, buduje się GCC 6.2. Wbudować źródło.
-2. **libgamestream** (parowanie/HTTP) - OpenSSL 1.0 + libcurl. TV ma `.so`,
-   brak nagłówków. Opcje: (a) nagłówki z zrzutu źródeł OpenSSL 1.0.x + linkowanie
-   do `tv-libs`, (b) port libgamestream na mbedTLS (wariant mbedTLS istnieje w
-   moonlight-embedded - do sprawdzenia), by uniknąć OpenSSL.
+Skrypty: `native/fetch-backport-deps.sh` (pobiera zależności), `native/build-deps-lib.sh`
+(buduje i linkuje). Dobrano wersje pod biblioteki TV: TV ma OpenSSL **1.0.2o**
+i libcurl **7.59.0**.
+
+- **mbedTLS 2.28.8 LTS**: 96/96 plików kompiluje GCC 6.2, archiwum statyczne.
+- **PlatformCrypto.c** (`-DUSE_MBEDTLS`, API 2.x): kompiluje się na mbedTLS.
+- **libgamestream** (http/pairing/mkcert): kompiluje się na nagłówkach OpenSSL
+  1.0.2o + curl 7.59 (opensslconf.h ręczny dla 32-bit ARM, `OPENSSL_NO_KRB5`).
+- **Test linkowania**: cały łańcuch (rdzeń + mbedTLS statycznie + libgamestream)
+  linkuje się do ARM ELF przeciw prawdziwym `tv-libs` libssl.so.1.0.0 /
+  libcrypto.so.1.0.0 / libcurl.so.4. **Wszystkie symbole krypto/curl rozwiązane.**
+  Żaden symbol glibc > 2.24. Nierozwiązane zostają tylko globale aplikacji
+  (`g_Cert`, `g_PrivateKey`, `g_UniqueId`, `g_CertHex`) - dostarcza je natywny `main`.
+
+**Ryzyko zależności/linkowania z planu - ZDJĘTE.** Nie trzeba portować
+libgamestream na mbedTLS; OpenSSL 1.0.2o z TV wystarcza.
 
 ## Dalej
 
