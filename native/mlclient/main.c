@@ -22,9 +22,10 @@
 
 extern int ml_cert_init(const char *dir);
 extern void VidEsplus_FillCallbacks(PDECODER_RENDERER_CALLBACKS cb);
-/* fork libgamestream pairing: returns the server cert DER as a hex string. */
-extern int gs_pair(int serverMajorVersion, const char *address, unsigned short httpPort,
-                   const char *pin, char **server_cert_der_string);
+/* gs_client.c: serverinfo -> pair -> launch -> RTSP url; fills sc->remoteInputAes*
+ * and si->serverInfoAppVersion/GfeVersion/rtspSessionUrl. */
+extern int gs_orchestrate(const char *host, unsigned short httpPort, unsigned short httpsPort,
+                          int appId, const char *pin, STREAM_CONFIGURATION *sc, SERVER_INFORMATION *si);
 
 static void cl_stageFailed(int stage, int errorCode) { fprintf(stderr, "[ml] stage %d FAILED err=%d\n", stage, errorCode); }
 static void cl_connTerminated(int errorCode) { fprintf(stderr, "[ml] connection terminated err=%d\n", errorCode); }
@@ -40,35 +41,24 @@ static int ar_init(int audioConfig, const POPUS_MULTISTREAM_CONFIGURATION cfg, v
 static void ar_cleanup(void) {}
 static void ar_decodePlay(char *sampleData, int sampleLength) { (void)sampleData; (void)sampleLength; }
 
-/*
- * TODO (M1 step 3b): port from moonlight-embedded client.c.
- * Must: GET https://<host>:47984/serverinfo (and :47989 http), read app version /
- * GFE version / pair state / current game; if unpaired call gs_pair(); POST
- * /launch?... (or /resume) to start the app; read the RTSP session URL from the
- * launch response. Fills host/appVersion/gfeVersion/rtspUrl for SERVER_INFORMATION.
- * Returns 0 on success.
- */
-static int gs_orchestrate(const char *host, SERVER_INFORMATION *si,
-                          char **appVersion, char **gfeVersion, char **rtspUrl) {
-  (void)host; (void)si; (void)appVersion; (void)gfeVersion; (void)rtspUrl;
-  fprintf(stderr, "[ml] gs_orchestrate: NOT IMPLEMENTED - port serverinfo/pair/launch/RTSP from moonlight-embedded client.c\n");
-  return -1;
-}
-
 static volatile sig_atomic_t g_quit;
 static void on_sig(int s) { (void)s; g_quit = 1; LiStopConnection(); }
 
 int main(int argc, char **argv) {
-  if (argc < 2) {
-    fprintf(stderr, "usage: %s <host-ip> [width=1920] [height=1080] [fps=60] [bitrate_kbps=20000] [data-dir=/tmp]\n", argv[0]);
+  if (argc < 3) {
+    fprintf(stderr, "usage: %s <host-ip> <appid> [width=1920] [height=1080] [fps=60] [bitrate_kbps=20000]\n"
+                    "  env: MOONLIGHT_PIN (4 digits, for first-time pairing), MOONLIGHT_DATADIR (default /tmp)\n", argv[0]);
     return 2;
   }
   const char *host = argv[1];
-  int width = argc > 2 ? atoi(argv[2]) : 1920;
-  int height = argc > 3 ? atoi(argv[3]) : 1080;
-  int fps = argc > 4 ? atoi(argv[4]) : 60;
-  int bitrate = argc > 5 ? atoi(argv[5]) : 20000;
-  const char *datadir = argc > 6 ? argv[6] : "/tmp";
+  int appId = atoi(argv[2]);
+  int width = argc > 3 ? atoi(argv[3]) : 1920;
+  int height = argc > 4 ? atoi(argv[4]) : 1080;
+  int fps = argc > 5 ? atoi(argv[5]) : 60;
+  int bitrate = argc > 6 ? atoi(argv[6]) : 20000;
+  const char *pin = getenv("MOONLIGHT_PIN");
+  const char *datadir = getenv("MOONLIGHT_DATADIR"); if (!datadir) datadir = "/tmp";
+  const unsigned short httpPort = 47989, httpsPort = 47984;
 
   signal(SIGINT, on_sig);
   signal(SIGTERM, on_sig);
@@ -87,14 +77,10 @@ int main(int argc, char **argv) {
   LiInitializeServerInformation(&si);
   si.address = host;
 
-  char *appVersion = NULL, *gfeVersion = NULL, *rtspUrl = NULL;
-  if (gs_orchestrate(host, &si, &appVersion, &gfeVersion, &rtspUrl) != 0) {
-    fprintf(stderr, "[ml] orchestration not ready; stopping before LiStartConnection.\n");
+  if (gs_orchestrate(host, httpPort, httpsPort, appId, pin, &sc, &si) != 0) {
+    fprintf(stderr, "[ml] GameStream orchestration failed; cannot start stream.\n");
     return 3;
   }
-  si.serverInfoAppVersion = appVersion;
-  si.serverInfoGfeVersion = gfeVersion;
-  si.rtspSessionUrl = rtspUrl;
   si.serverCodecModeSupport = SCM_H264;
 
   DECODER_RENDERER_CALLBACKS dr;

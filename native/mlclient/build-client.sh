@@ -18,12 +18,12 @@ cp "$HERE/../esplusplayer_tv50.h" "$OUT/"
 FLAGS="--sysroot=$DEPS/sysroot -mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=softfp -O2 -std=gnu11 -Wall -Wextra"
 INC="-I$C/src -I$OUT -I$MLT/libgamestream -I$BPD/ossl-inc -I$BPD/curl759/include"
 
-for src in cert_init main video_esplus; do
+for src in cert_init main video_esplus gs_client; do
   "$GCC" $FLAGS $INC -c "$HERE/$src.c" -o "$OUT/$src.o"
 done
 
 "$GCC" --sysroot=$DEPS/sysroot -mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=softfp -O2 \
-  -o "$OUT/mlclient" "$OUT"/cert_init.o "$OUT"/main.o "$OUT"/video_esplus.o \
+  -o "$OUT/mlclient" "$OUT"/cert_init.o "$OUT"/main.o "$OUT"/video_esplus.o "$OUT"/gs_client.o \
   "$DEPSBUILD"/obj/*.o "$DEPSBUILD"/gs/*.o "$DEPSBUILD/libmbedcrypto_tv.a" \
   -L"$TVL" -Wl,-rpath-link,"$TVL" -Wl,--allow-shlib-undefined \
   -l:libesplusplayer.so -l:libecore_wl2.so.1 -l:libecore.so.1 \

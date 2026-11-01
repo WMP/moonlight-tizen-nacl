@@ -86,19 +86,38 @@ w jeden pakiet ES i wysyła z PTS z `presentationTimeMs`. Skrypt:
   linkuje w pełny klient ELF (`native/mlclient/build-client.sh`), brak symboli
   glibc > 2.24.
 
-Jeszcze NIE zrobione: `gs_orchestrate()` w main.c (GET serverinfo, parowanie,
-launch, URL RTSP) - do portu z moonlight-embedded `client.c`. Binarka robi cert
-init i zatrzymuje się na tym szwie. Pełny test wymaga hosta Sunshine w LAN i
-włączonego TV.
-
 Uwaga do uruchamiania: klienta (z esplusplayer) nie da się uruchomić pod qemu -
 esplusplayer ciąga `libopen-debugmenu.so` (lib tylko-z-TV). Testować na TV.
 
+## Milestone 1 krok 3b cd. - orkiestracja GameStream (NA SUCHO, 2026-11-01)
+
+`native/mlclient/gs_client.c`: pełna orkiestracja HTTP przeniesiona z
+moonlight-embedded `client.c`, dostosowana do libgamestream forka
+(`http_request(url, ppkstr, data)` + `gs_pair(...)`):
+1. serverinfo po HTTP (:47989) -> major version, PairStatus;
+2. parowanie `gs_pair` jeśli trzeba (PIN z env `MOONLIGHT_PIN`, wpisywany na hoście);
+3. serverinfo po HTTPS (:47984, cert przypięty) -> appversion/GfeVersion;
+4. klucz rikey (AES) + rikeyid jak w moonlight-embedded;
+5. launch/resume -> `sessionUrl0` = rtspSessionUrl.
+
+Zawiera własny, bezzależnościowy `xml_search`/`xml_status` (fork odwołuje się do
+nich, ale nie dostarcza xml.c; unikamy expat). **Przetestowane jednostkowo na
+hoście** (`xml_selftest.c` + `xml_selftest_stubs.c`): pola, tag z atrybutami,
+brzegowy prefiks tagu, błędny status.
+
+`main.c` wywołuje teraz `gs_orchestrate` i `LiStartConnection`. Cały klient
+buduje się i linkuje (`build-client.sh`), 0 ostrzeżeń, brak glibc > 2.24.
+Uruchomienie: `mlclient <host-ip> <appid> [w h fps bitrate]`, env `MOONLIGHT_PIN`.
+
+**UWAGA: `gs_client.c` nie jest testowany end-to-end** - wymaga hosta Sunshine/GFE
+w LAN. URL-e, parametry i nazwy pól odwzorowane 1:1 z moonlight-embedded.
+
 ## Dalej
 
-- M1 krok 3b cd.: port orkiestracji HTTP/parowania z moonlight-embedded `client.c`
-  do `gs_orchestrate()`.
-- M1 krok 4: `LiStartConnection` -> obraz na ekranie z /tmp, test z hostem Sunshine.
+- M1 krok 4: test na TV z hostem Sunshine - parowanie + obraz na ekranie z /tmp.
+- M2: audio (opus -> esplusplayer/PulseAudio), M3: wejście (pilot/evdev).
+- Do potwierdzenia na realnym strumieniu: poprawność `opensslconf.h`, flagi
+  `OPENSSL_NO_*` TV, zachowanie rikey/parowania, odpowiednik `kUltraLow`.
 
 Niewiadome do potwierdzenia: odpowiednik EMSS `LatencyMode::kUltraLow` w
 esplusplayer (brak `set_low_latency_mode` w eksportach - szukać w ustawieniach
