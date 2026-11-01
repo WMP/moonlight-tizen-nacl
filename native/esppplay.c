@@ -97,6 +97,7 @@ static const uint8_t *g_buf;
 static au_t *g_aus;
 static size_t g_naus;
 static unsigned g_fps = 60, g_loops;
+static volatile uint64_t g_last_pts_ms;
 
 static double now_ms(clockid_t c) {
   struct timespec ts;
@@ -123,13 +124,20 @@ static void *feeder(void *arg) {
   (void)arg;
   while (!g_feed && !g_quit) usleep(1000);
   const uint64_t frame_ns = 1000000000ull / g_fps;
+  /* ESPP_PREROLL_STEP_MS: pts step before prepare_done. Frames queued for
+   * preroll stay as constant latency after start, so a small step lets the
+   * clock catch up with live submission. Default = normal frame step. */
+  const char *e = getenv("ESPP_PREROLL_STEP_MS");
+  const uint64_t pre_ns = e ? (uint64_t)(atof(e) * 1e6) : frame_ns;
+  uint64_t pts = 0;
   double t0 = now_ms(CLOCK_MONOTONIC);
   unsigned full = 0;
   for (uint64_t f = 0; !g_quit; f++) {
     if (g_loops && f >= (uint64_t)g_loops * g_naus) break;
     const au_t *a = &g_aus[f % g_naus];
     esplusplayer_es_packet p = {ESPLUSPLAYER_STREAM_TYPE_VIDEO, (char *)g_buf + a->off,
-                                (uint32_t)a->len, f * frame_ns, frame_ns};
+                                (uint32_t)a->len, pts, frame_ns};
+    pts += g_prepared ? frame_ns : pre_ns;
     sleep_until(t0 + f * 1e3 / g_fps);
     int r;
     while ((r = esplusplayer_submit_packet(g_pl, &p)) == ESPLUSPLAYER_SUBMIT_STATUS_FULL && !g_quit) {
@@ -139,6 +147,7 @@ static void *feeder(void *arg) {
     LOG("SUBMIT %llu pts_ms=%llu len=%zu ret=%d full_retries=%u t=%.3f\n", (unsigned long long)f,
         (unsigned long long)(p.pts / 1000000), a->len, r, full, now_ms(CLOCK_REALTIME));
     full = 0;
+    g_last_pts_ms = p.pts / 1000000;
     if (r != ESPLUSPLAYER_SUBMIT_STATUS_SUCCESS && r != ESPLUSPLAYER_SUBMIT_STATUS_FULL)
       LOG("submit_packet error %d\n", r);
   }
@@ -214,6 +223,14 @@ int main(int argc, char **argv) {
       LOG("prepare took %.1f ms\n", now_ms(CLOCK_MONOTONIC) - t_prep);
       if (g_prepare_result) CHECK_BOOL(esplusplayer_start(g_pl));
       else { LOG("prepare failed\n"); g_quit = 1; }
+    }
+    static double t_lat;
+    if (started && now_ms(CLOCK_MONOTONIC) - t_lat >= 100) {
+      uint64_t play = 0;
+      t_lat = now_ms(CLOCK_MONOTONIC);
+      int r = esplusplayer_get_playing_time(g_pl, &play);
+      LOG("PLAYTIME ret=%d play=%llu last_pts_ms=%llu queue_ms=%lld\n", r, (unsigned long long)play,
+          (unsigned long long)g_last_pts_ms, (long long)g_last_pts_ms - (long long)play);
     }
     if (!g_prepared && now_ms(CLOCK_MONOTONIC) - t_prep > 15000) { LOG("prepare timeout 15 s\n"); g_quit = 1; }
     usleep(2000);
