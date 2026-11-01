@@ -58,14 +58,31 @@ i libcurl **7.59.0**.
 **Ryzyko zależności/linkowania z planu - ZDJĘTE.** Nie trzeba portować
 libgamestream na mbedTLS; OpenSSL 1.0.2o z TV wystarcza.
 
+## Milestone 1 krok 3 (część) - WYNIK (2026-11-01)
+
+Sink wideo: `native/mlclient/video_esplus.c` - implementacja
+`DECODER_RENDERER_CALLBACKS` nad esplusplayer (natywny odpowiednik
+`wasm/wasmplayer.cpp`). `submitDecodeUnit` skleja łańcuch LENTRY (Annex-B)
+w jeden pakiet ES i wysyła z PTS z `presentationTimeMs`. Skrypt:
+`native/mlclient/build-video-path.sh`.
+
+- Kompiluje się 0 ostrzeżeń.
+- **Cały natywny tor wideo linkuje się w jeden ARM ELF**: rdzeń + PlatformCrypto
+  (mbedTLS) + libgamestream (OpenSSL/curl) + sink + esplusplayer + ecore, przeciw
+  prawdziwym `tv-libs`. NEEDED: libesplusplayer, libecore*, libssl, libcrypto,
+  libcurl. Żaden symbol glibc > 2.24. `--allow-shlib-undefined` potrzebny dla
+  przechodnich zależności esplusplayer tylko-z-TV (jak w `build-esppplay.sh`).
+
+Jeszcze NIE zrobione w kroku 3: orkiestracja GameStream HTTP (GET serverinfo,
+parowanie, launch aplikacji, parsowanie URL RTSP) - fork robi to w JS; do portu
+z `client.c` moonlight-embedded. Oraz test end-to-end (wymaga hosta Sunshine w
+LAN i włączonego TV).
+
 ## Dalej
 
-- M1 krok 2: zbudować mbedTLS + libgamestream, natywny `main` robi `gs_pair`
-  i HTTP do PC (Sunshine).
-- M1 krok 3: `DECODER_RENDERER_CALLBACKS.submitDecodeUnit` -> `esplusplayer_submit_packet`
-  (użyć `split_aus` i okna z `esppplay.c`). esplusplayer przyjmuje Annex-B
-  (potwierdzone prototypem). Audio i wejście zaślepione.
-- M1 krok 4: `LiStartConnection` -> obraz na ekranie, uruchamiane z /tmp.
+- M1 krok 3b: port orkiestracji HTTP/parowania z moonlight-embedded `client.c`
+  (serverinfo/launch/RTSP-url), natywny `main` wiążący sink + zaślepki audio/wejścia.
+- M1 krok 4: `LiStartConnection` -> obraz na ekranie z /tmp, test z hostem Sunshine.
 
 Niewiadome do potwierdzenia: odpowiednik EMSS `LatencyMode::kUltraLow` w
 esplusplayer (brak `set_low_latency_mode` w eksportach - szukać w ustawieniach
