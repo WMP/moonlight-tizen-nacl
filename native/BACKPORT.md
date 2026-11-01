@@ -73,15 +73,31 @@ w jeden pakiet ES i wysyła z PTS z `presentationTimeMs`. Skrypt:
   libcurl. Żaden symbol glibc > 2.24. `--allow-shlib-undefined` potrzebny dla
   przechodnich zależności esplusplayer tylko-z-TV (jak w `build-esppplay.sh`).
 
-Jeszcze NIE zrobione w kroku 3: orkiestracja GameStream HTTP (GET serverinfo,
-parowanie, launch aplikacji, parsowanie URL RTSP) - fork robi to w JS; do portu
-z `client.c` moonlight-embedded. Oraz test end-to-end (wymaga hosta Sunshine w
-LAN i włączonego TV).
+## Milestone 1 krok 3b (część) - WYNIK (2026-11-01)
+
+- `native/mlclient/cert_init.c`: generuje/ładuje cert klienta (PEM), ustawia
+  globale `g_Cert/g_PrivateKey/g_UniqueId/g_CertHex`, curl init. Natywny
+  odpowiednik `http.cpp` MakeCert/LoadCert/HttpInit.
+  **Przetestowane pod qemu-arm** na OpenSSL 1.0.2 z TV: run 1 tworzy ważny X.509
+  (CN=NVIDIA GameStream Client, 10 lat), zapisuje client.pem/key/uniqueid;
+  run 2 wczytuje istniejący (ta sama uniqueid). Cert poprawny wg `openssl x509`.
+- `native/mlclient/main.c`: SZKIELET. Wiąże cert init + STREAM_CONFIGURATION +
+  sink wideo + zaślepki audio/listener + `LiStartConnection`. Buduje się i
+  linkuje w pełny klient ELF (`native/mlclient/build-client.sh`), brak symboli
+  glibc > 2.24.
+
+Jeszcze NIE zrobione: `gs_orchestrate()` w main.c (GET serverinfo, parowanie,
+launch, URL RTSP) - do portu z moonlight-embedded `client.c`. Binarka robi cert
+init i zatrzymuje się na tym szwie. Pełny test wymaga hosta Sunshine w LAN i
+włączonego TV.
+
+Uwaga do uruchamiania: klienta (z esplusplayer) nie da się uruchomić pod qemu -
+esplusplayer ciąga `libopen-debugmenu.so` (lib tylko-z-TV). Testować na TV.
 
 ## Dalej
 
-- M1 krok 3b: port orkiestracji HTTP/parowania z moonlight-embedded `client.c`
-  (serverinfo/launch/RTSP-url), natywny `main` wiążący sink + zaślepki audio/wejścia.
+- M1 krok 3b cd.: port orkiestracji HTTP/parowania z moonlight-embedded `client.c`
+  do `gs_orchestrate()`.
 - M1 krok 4: `LiStartConnection` -> obraz na ekranie z /tmp, test z hostem Sunshine.
 
 Niewiadome do potwierdzenia: odpowiednik EMSS `LatencyMode::kUltraLow` w
