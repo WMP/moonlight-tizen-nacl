@@ -148,13 +148,29 @@ PROVENANCE.md         code origins + reverse-engineering results
 
 ## Credits & license
 
-- [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) and
-  `libgamestream` — the Moonlight project (GPLv3). This project is therefore GPLv3.
-- [moonlight-tizen](https://github.com/brightcraft/moonlight-tizen) — the web UI and
-  the Tizen integration this port builds on.
-- Samsung's TV libraries (`libesplusplayer.so` etc.) are **not** included and must
-  not be redistributed; they are used only locally, linked against copies from your
-  own device.
+This project stands on several others. What came from where:
+
+| Project | What we took from it |
+|---|---|
+| [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (moonlight-stream) | The streaming core — RTSP, control stream, FEC, the decoder/audio callback ABI. Used unchanged. |
+| [moonlight-embedded](https://github.com/moonlight-embedded/moonlight-embedded) (irtimmer) | `libgamestream` (pairing + GameStream HTTP) and its `client.c` as the reference for our native pairing/launch orchestration (`gs_client.c`). |
+| [moonlight-tizen](https://github.com/brightcraft/moonlight-tizen) (brightcraft) | The web UI — host list, pairing, app grid, settings — reused as-is, with the WASM/EMSS video transport swapped for our message-port bridge. The WASM port we backport the fast path *from*. |
+| [moonlight-chrome](https://github.com/moonlight-stream/moonlight-chrome) → [moonlight-tizen-nacl](https://github.com/OneLiberty/moonlight-tizen-nacl) (OneLiberty) | The original NaCl Tizen lineage this repo forked (see the top-level README); the pre-5.5 UI and gamepad fixes. |
+| [nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy) (iqui27) | The **native `.tpk` design for Tizen 4/5**: loading the engine `.so` from memory via `memfd` (UEP blocks file `dlopen`), the `tizen40`/`TVGLApplication` host shape, **PUBLIC / no-`drminfo`** signing, per-DUID install, and the self-update-by-downloaded-`.so` idea. We aligned our host/engine to it; no code copied. |
+| [Apps2Samsung](https://github.com/Apps2Samsung/Apps2Samsung) | The end-user install tool — reads the TV DUID, signs each package for it, installs. |
+| [vitalets/docker-tizen-webos-sdk](https://github.com/vitalets/docker-tizen-webos-sdk) + the [Jellyfin](https://github.com/jellyfin/jellyfin-tizen) / [georift](https://github.com/Georift/install-jellyfin-tizen) install flow | The headless build+install toolchain (Tizen CLI + `sdb`), the pattern our Docker image and `install-on-tv.sh` follow. |
+
+**New / our own:** the reverse-engineered `libesplusplayer.so` ABI
+(`esplusplayer_tv50.h`), the native engine (`esplus_player.c`, `video_esplus.c`,
+`audio_opus.c`, `input_evdev.c`), the message-port bridge, and the build/packaging.
+Full file-level map and attribution in [PROVENANCE.md](PROVENANCE.md).
+
+**License:** `moonlight-common-c` and `libgamestream` are GPLv3, so this project is
+**GPLv3**.
+
+Samsung's TV libraries (`libesplusplayer.so` etc.) are **not** included and must not
+be redistributed; they are used only locally, linked against copies from your own
+device.
 
 ## Disclaimer
 
