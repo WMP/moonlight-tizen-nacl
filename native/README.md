@@ -86,10 +86,14 @@ the message-port transport → sign/package. The signing certificate is generate
 inside the container (self-signed author + the bundled Tizen dev distributor), so
 no GUI certificate wizard is needed.
 
-> The web `.wgt` builds and signs headless with the CLI. The native `.tpk`
-> packaging needs the Tizen **native** packaging component in the mounted CLI; a
-> minimal/web-only CLI reports "Not Found Native templates". Point the mount at a
-> Tizen Studio that has the native tooling (added once via its package manager).
+> **Packaging status.** The image installs Tizen Studio fully headless (no GUI):
+> `native/pkg/install-tizen-cli.sh` bypasses the GUI installer by extracting its
+> self-extracting payload, then adds `NativeCLI` via the bundled package manager.
+> The CLI runs, generates a dev cert, and **signs the web `.wgt`** headless.
+> The native `.tpk` step still needs a TV **native rootstrap + templates** (the
+> Samsung TV SDK extension) that `NativeCLI` alone does not provide — until that is
+> added, build the `.tpk` by hand-assembling the zip and signing it. See
+> `native/pkg/install-tizen-cli.sh` and `pkg/ARCHITECTURE.md`.
 
 ## Install & run (no root required)
 
