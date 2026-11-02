@@ -1,38 +1,101 @@
 /*
- * MoonlightHost - minimal Tizen .NET host for the no-root dev-cert path.
+ * MoonlightHost - Tizen .NET host for the no-root dev-cert path.
  *
- * On a retail (unrooted) Samsung TV only Web (.wgt) and .NET (.tpk) apps install.
- * So the installable unit is a dev-signed .NET .tpk; our native streaming engine
- * ships inside it as libmlengine.so and is driven over the stable C ABI (mlengine.h)
- * by the P/Invoke block below - the SAME four symbols the root-path exe uses.
+ * On a retail (unrooted) Samsung TV only Web (.wgt) and .NET (.tpk) apps install, so
+ * the installable unit is a dev-signed .NET .tpk; our native streaming engine ships
+ * inside it as libmlengine.so and is driven over the stable C ABI (mlengine.h).
  *
- * STATUS: path-proof skeleton. The P/Invoke signatures are final; the lifecycle and
- * (absent) UI are placeholders. Finalise TFM/privileges/signing against the WORKING
- * `dev.moonlight.tvshell` already installed on the TV (see ../DEV-CERT-PATH.md).
+ * KEY POINT (why not plain [DllImport]): 2018-2020 Samsung TVs block native code
+ * loaded from the application folder. So we do NOT let the loader dlopen
+ * libmlengine.so from lib/; instead we read its bytes and load it from an anonymous
+ * in-memory fd (memfd_create -> write -> dlopen /proc/self/fd/N), the nuvio-native
+ * pattern. Only OUR .so comes from memory; its dependencies (esplusplayer, ssl, curl,
+ * ecore...) still resolve normally from the TV's /usr/lib.
+ *
+ * STATUS: the loader + ABI are the real mechanism; lifecycle/UI are placeholders.
+ * Verify TFM/privileges against the on-device dev.moonlight.tvshell, and confirm the
+ * sandbox permits memfd_create + dlopen(/proc/self/fd) on the target. See
+ * ../DEV-CERT-PATH.md.
  */
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using Tizen.Applications;
 
 namespace MoonlightHost
 {
+    // Loads a shared object from memory (bypasses app-folder native-code blocking).
+    internal static class MemLoader
+    {
+        private const uint MFD_CLOEXEC = 0x0001u;
+        private const int  RTLD_NOW    = 0x0002;
+
+        [DllImport("libc", SetLastError = true)]  private static extern int  memfd_create(string name, uint flags);
+        [DllImport("libc", SetLastError = true)]  private static extern IntPtr write(int fd, IntPtr buf, UIntPtr count);
+        [DllImport("libdl")]                       private static extern IntPtr dlopen(string filename, int flags);
+        [DllImport("libdl")]                       public  static extern IntPtr dlsym(IntPtr handle, string symbol);
+        [DllImport("libdl")]                       private static extern IntPtr dlerror();
+
+        public static IntPtr LoadFromMemory(byte[] so)
+        {
+            int fd = memfd_create("mlengine", MFD_CLOEXEC);
+            if (fd < 0) throw new InvalidOperationException("memfd_create failed: " + Marshal.GetLastWin32Error());
+
+            var pin = GCHandle.Alloc(so, GCHandleType.Pinned);
+            try
+            {
+                IntPtr basePtr = pin.AddrOfPinnedObject();
+                long total = 0;
+                while (total < so.Length)
+                {
+                    IntPtr n = write(fd, basePtr + (int)total, (UIntPtr)(so.Length - total));
+                    long w = n.ToInt64();
+                    if (w <= 0) throw new IOException("write to memfd failed: " + Marshal.GetLastWin32Error());
+                    total += w;
+                }
+            }
+            finally { pin.Free(); }
+
+            IntPtr h = dlopen("/proc/self/fd/" + fd, RTLD_NOW);
+            if (h == IntPtr.Zero)
+            {
+                IntPtr err = dlerror();
+                throw new InvalidOperationException("dlopen(memfd) failed: " + (err != IntPtr.Zero ? Marshal.PtrToStringAnsi(err) : "?"));
+            }
+            return h;
+        }
+
+        public static T GetDelegate<T>(IntPtr handle, string symbol) where T : class
+        {
+            IntPtr p = dlsym(handle, symbol);
+            if (p == IntPtr.Zero) throw new EntryPointNotFoundException("dlsym: " + symbol);
+            return (T)(object)Marshal.GetDelegateForFunctionPointer(p, typeof(T));
+        }
+    }
+
+    // The engine C ABI (mlengine.h), bound at runtime from the in-memory .so.
     internal static class Engine
     {
-        // DllImport resolves libmlengine.so from the app's lib/ dir at runtime.
-        private const string Lib = "libmlengine.so";
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public delegate int  StartDelegate(string host, int appId, string pin,
+                                           int width, int height, int fps, int bitrateKbps, string datadir);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate int  RunningDelegate();
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void WaitDelegate();
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] public delegate void StopDelegate();
 
-        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int ml_engine_start(string host, int appId, string pin,
-            int width, int height, int fps, int bitrateKbps, string datadir);
+        public static StartDelegate   Start;
+        public static RunningDelegate Running;
+        public static WaitDelegate    Wait;
+        public static StopDelegate    Stop;
 
-        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int ml_engine_running();
-
-        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void ml_engine_wait();
-
-        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void ml_engine_stop();
+        public static void Load(string soPath)
+        {
+            IntPtr h = MemLoader.LoadFromMemory(File.ReadAllBytes(soPath));
+            Start   = MemLoader.GetDelegate<StartDelegate>(h,   "ml_engine_start");
+            Running = MemLoader.GetDelegate<RunningDelegate>(h, "ml_engine_running");
+            Wait    = MemLoader.GetDelegate<WaitDelegate>(h,    "ml_engine_wait");
+            Stop    = MemLoader.GetDelegate<StopDelegate>(h,    "ml_engine_stop");
+        }
     }
 
     internal sealed class App : CoreUIApplication
@@ -40,17 +103,24 @@ namespace MoonlightHost
         protected override void OnCreate()
         {
             base.OnCreate();
-            // TODO: real menu + pairing UI (reuse moonlight-tizen web UI, or NUI).
-            // Path-proof default: start a session to a host from an env/metadata value.
-            string host = Environment.GetEnvironmentVariable("MOONLIGHT_HOST") ?? "192.168.123.3";
-            string dataDir = DirectoryInfo.Data;
-            int rc = Engine.ml_engine_start(host, 0, null, 1920, 1080, 60, 20000, dataDir);
-            Tizen.Log.Info("MLHOST", $"ml_engine_start(host={host}) rc={rc}");
+            try
+            {
+                string soPath = Path.Combine(DirectoryInfo.Resource, "lib", "libmlengine.so");
+                Engine.Load(soPath);
+                // TODO: real menu + pairing UI (reuse moonlight-tizen web UI, or NUI).
+                string host = Environment.GetEnvironmentVariable("MOONLIGHT_HOST") ?? "192.168.123.3";
+                int rc = Engine.Start(host, 0, null, 1920, 1080, 60, 20000, DirectoryInfo.Data);
+                Tizen.Log.Info("MLHOST", $"engine loaded from memory; ml_engine_start(host={host}) rc={rc}");
+            }
+            catch (Exception e)
+            {
+                Tizen.Log.Error("MLHOST", "engine load/start failed: " + e);
+            }
         }
 
         protected override void OnTerminate()
         {
-            Engine.ml_engine_stop();
+            try { Engine.Stop?.Invoke(); } catch { }
             base.OnTerminate();
         }
 

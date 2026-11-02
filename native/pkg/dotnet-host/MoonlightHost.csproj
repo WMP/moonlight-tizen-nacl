@@ -16,11 +16,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Native engine shipped inside the tpk under lib/ and dlopen'd by P/Invoke.
-         build-engine-so.sh produces it; copy it to lib/ before packing. -->
+    <!-- Native engine shipped inside the tpk under res/lib/. It is NOT DllImport'd
+         from there (2018-2020 TVs block native code loaded from the app folder):
+         Program.cs reads these bytes and loads them from an in-memory fd. We only need
+         the file present and readable. build-engine-so.sh produces it; copy it to
+         lib/ before packing. -->
     <None Include="lib/libmlengine.so">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>lib/libmlengine.so</Link>
+      <Link>res/lib/libmlengine.so</Link>
     </None>
   </ItemGroup>
 </Project>

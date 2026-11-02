@@ -68,12 +68,18 @@ sdb shell app_launcher -s org.moonlight.host.app
 sdb dlog MLHOST                                    # watch ml_engine_start rc + engine logs
 ```
 
-## 7. The in-memory .so caveat (test, then fix if needed)
-On some 2018–2020 sets the TV **blocks native code loaded from the app folder**. If
-`ml_engine_start` fails to load `libmlengine.so` from `lib/`, switch to the
-community workaround: read the `.so` bytes and `dlopen` it from an in-memory fd
-(`memfd_create`), as nuvio-native-legacy does. Only add this if the direct load is
-actually blocked — flutter-tizen ships its engine .so from disk, so it may work.
+## 7. In-memory .so loading (implemented)
+2018–2020 sets **block native code loaded from the app folder**, so the host does NOT
+`DllImport`/dlopen `libmlengine.so` from `res/lib/`. Instead `Program.cs`
+(`MemLoader`) reads the `.so` bytes and loads them from an anonymous in-memory fd:
+`memfd_create` → `write` → `dlopen("/proc/self/fd/N")` → `dlsym` the `ml_engine_*`
+symbols (the nuvio-native pattern). Only our `.so` is loaded from memory; its
+dependencies (esplusplayer, ssl, curl, ecore…) still resolve from the TV's `/usr/lib`.
+
+To verify on device: watch `sdb dlog MLHOST` for "engine loaded from memory" vs a
+`dlopen(memfd)`/`memfd_create` error. If the sandbox forbids `memfd_create` or
+`dlopen(/proc/self/fd)`, fall back to a tmpfs path under the app's data dir (still
+off the blocked app-code folder) or to a direct disk load if that set permits it.
 
 ## Open items / verify against the device
 - Exact TFM + Tizen.NET version (from `dev.moonlight.tvshell`).
