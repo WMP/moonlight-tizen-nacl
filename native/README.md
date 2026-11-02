@@ -94,23 +94,39 @@ docker run --rm --network host -v "$PWD":/work/repo moonlight-tizen-build \
 > **Packaging status.** The web `.wgt` builds, signs and installs headless on the
 > vitalets image (the Tizen-Studio-install problem is gone). The native engine ships
 > as `libmlengine.so` driven by a thin exe (root path) or a **.NET host `.tpk`**
-> (no-root dev-cert path — see `pkg/DEV-CERT-PATH.md`); the `.tpk` is built with the
-> .NET + Tizen workload and installed with the same `install-on-tv.sh`. Recent TVs
-> reject the default Tizen cert ("Invalid certificate chain"); pass a Samsung
-> certificate bound to the TV's DUID via the `cert_password` argument (mount
-> `author.p12`/`distributor.p12`), as the Jellyfin installer does.
+> (no-root dev-cert path — see `pkg/DEV-CERT-PATH.md`). The `.tpk` uses the `tizen40`
+> TFM, built with a plain .NET SDK + the `Tizen.NET.Sdk` NuGet (NO `dotnet workload
+> install tizen`); the vitalets Tizen CLI does the packaging/signing. End users
+> install with Apps2Samsung (per-DUID signing); developers can use `install-on-tv.sh`
+> with a Samsung DUID cert, since recent TVs reject the default Tizen cert
+> ("Invalid certificate chain").
 
-## Install & run (no root required)
+## Install (no root required)
 
-The hardware video path works from a sandboxed, dev-signed app — **root is not
-required** for a signed `.tpk`/`.wgt` installed in developer mode (verified: the
-esplusplayer path runs under a `User::Pkg` SMACK label). Root is only needed for
-the raw-binary CLI test harness (`esppplay`, `mlclient`).
+**You do not build anything.** CI builds the packages on every release
+(`.github/workflows/build-packages.yml`); download them from the
+[Releases](../../releases) page and install with
+**[Apps2Samsung](https://github.com/Apps2Samsung/Apps2Samsung)**.
 
-```bash
-sdb connect <TV-IP>
-tizen install -n <package>.tpk
-```
+1. On the TV: enable **Developer Mode** (Apps → `12345` → on, enter your PC's IP,
+   reboot).
+2. Download the package for your TV from Releases:
+   - `org.moonlight.host-*.tpk` — the native engine (Tizen 4.0–5.5).
+   - `Moonlight-*.wgt` — the web UI.
+3. Open **Apps2Samsung**, point it at the TV. It reads the TV's **DUID**, signs
+   each package for that DUID, and installs it. Packages are shipped signed only
+   with a sample dev cert on purpose — Apps2Samsung re-signs per-DUID, which is
+   what the TV accepts (a fixed distributor cert would lock installs to a preset
+   list of TVs). No Samsung certificate to create by hand, no `sdb` commands.
+
+The hardware video path runs from this sandboxed, dev-signed app — **root is not
+required** (the esplusplayer path runs under a `User::Pkg` SMACK label). Root is
+only needed for the raw-binary CLI test harness (`esppplay`, `mlclient`).
+
+> Developer alternative (no Apps2Samsung): `native/pkg/install-on-tv.sh <TV_IP>
+> <package> [cert_password]` does `sdb connect` + `tizen install`, re-signing with
+> a Samsung DUID cert you supply (`author.p12`/`distributor.p12`). Apps2Samsung is
+> the same DUID signing step, automated.
 
 ## Requirements
 
