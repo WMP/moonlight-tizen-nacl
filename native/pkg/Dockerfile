@@ -18,8 +18,21 @@ FROM docker.io/vitalets/tizen-webos-sdk
 
 # Extra build tools the core/engine scripts use (the cross toolchain itself is mounted).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      make cmake pkg-config file xz-utils rsync \
+      make cmake pkg-config file xz-utils rsync curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# .NET SDK for the no-root .tpk host (dotnet-host/). The Tizen 4/5 TFM (tizen40)
+# builds with the OLD Tizen.NET.Sdk delivered as a NuGet package + any modern .NET
+# SDK; it needs NO `dotnet workload install tizen` (that is only for net6+/tizen7+ —
+# see nuvio tools/tpk.sh). The vitalets Tizen CLI already present does the signing.
+ENV DOTNET_ROOT=/opt/dotnet \
+    PATH=/opt/dotnet:$PATH \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+    && bash /tmp/dotnet-install.sh --channel 8.0 --install-dir /opt/dotnet \
+    && rm /tmp/dotnet-install.sh \
+    && dotnet --info | head -n 5
 
 WORKDIR /work
 CMD ["/bin/bash"]
