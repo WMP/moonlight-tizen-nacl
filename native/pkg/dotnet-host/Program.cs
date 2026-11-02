@@ -29,8 +29,12 @@ namespace MoonlightHost
     {
         private const uint MFD_CLOEXEC = 0x0001u;
         private const int  RTLD_NOW    = 0x0002;
+        // Tizen 4/5 libc does NOT export memfd_create, so create the anonymous fd by
+        // raw syscall. ARM (32-bit) __NR_memfd_create = 385. (nuvio samsung-tpk-legacy.)
+        private const long SYS_memfd_create_arm = 385;
 
-        [DllImport("libc", SetLastError = true)]  private static extern int  memfd_create(string name, uint flags);
+        [DllImport("libc", EntryPoint = "syscall", SetLastError = true)]
+        private static extern int syscall_memfd(long number, string name, uint flags);
         [DllImport("libc", SetLastError = true)]  private static extern IntPtr write(int fd, IntPtr buf, UIntPtr count);
         [DllImport("libdl")]                       private static extern IntPtr dlopen(string filename, int flags);
         [DllImport("libdl")]                       public  static extern IntPtr dlsym(IntPtr handle, string symbol);
@@ -38,8 +42,13 @@ namespace MoonlightHost
 
         public static IntPtr LoadFromMemory(byte[] so)
         {
-            int fd = memfd_create("mlengine", MFD_CLOEXEC);
-            if (fd < 0) throw new InvalidOperationException("memfd_create failed: " + Marshal.GetLastWin32Error());
+            // Route 1 (preferred): memfd. UEP blocks dlopen of a FILE (even signed) but
+            // allows PROT_EXEC anonymous memory. The fd must stay open for process life.
+            // Route 2 (fallback, nuvio's): a C# ELF32-ARM loader for TVs where memfd is
+            // refused. NOT implemented here yet (memfd worked on 3 of nuvio's 4 test sets);
+            // add if a target returns an mmap/dlopen error.
+            int fd = syscall_memfd(SYS_memfd_create_arm, "mlengine", MFD_CLOEXEC);
+            if (fd < 0) throw new InvalidOperationException("memfd_create(syscall 385) failed: " + Marshal.GetLastWin32Error());
 
             var pin = GCHandle.Alloc(so, GCHandleType.Pinned);
             try

@@ -23,7 +23,13 @@ done
 
 # libmlengine.so: engine objects + the static deps (moonlight-common-c core,
 # libgamestream, mbedcrypto) + the TV's shared libs, resolved into the .so.
+# --hash-style=both: the no-root .NET host's fallback ELF loader needs a SYSV
+# DT_HASH (Tizen 4/5 UEP blocks dlopen of a file, so the engine is loaded from
+# anonymous memory; the fallback loader resolves symbols via DT_HASH). See nuvio's
+# samsung-tpk-legacy design. The engine is also built TLS-free (that loader can't do
+# R_ARM_TLS_*); verified: no _Thread_local in the engine/moonlight-common-c.
 "$GCC" --sysroot=$DEPS/sysroot $ARCH -O2 -shared -Wl,-soname,libmlengine.so \
+  -Wl,--hash-style=both \
   -o "$OUT/libmlengine.so" \
   "$OUT"/cert_init.o "$OUT"/engine_api.o "$OUT"/video_esplus.o "$OUT"/audio_opus.o \
   "$OUT"/esplus_player.o "$OUT"/gs_client.o "$OUT"/input_evdev.o \
@@ -35,7 +41,7 @@ done
 # thin exe: main.o + the .so
 "$GCC" $FLAGS $INC -c "$HERE/main.c" -o "$OUT/main.o"
 "$GCC" --sysroot=$DEPS/sysroot $ARCH -O2 -o "$OUT/mlclient" "$OUT/main.o" \
-  -L"$OUT" -Wl,-rpath-link,"$TVL" -Wl,--unresolved-symbols=ignore-in-shared-libs -lmlengine -Wl,-rpath,'$ORIGIN'
+  -L"$OUT" -Wl,-rpath-link,"$TVL" -Wl,--unresolved-symbols=ignore-in-shared-libs -lmlengine -Wl,-rpath,'$ORIGIN/../lib'
 
 echo "built: $(file "$OUT/libmlengine.so" | cut -d, -f1-3)"
 echo "       $(file "$OUT/mlclient" | cut -d, -f1-3)"

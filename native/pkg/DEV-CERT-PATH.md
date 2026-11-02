@@ -68,6 +68,22 @@ sdb shell app_launcher -s org.moonlight.host.app
 sdb dlog MLHOST                                    # watch ml_engine_start rc + engine logs
 ```
 
+## Tizen 4/5 UEP facts (verified from nuvio's shipping design)
+On 2018–2020 TVs the **UEP refuses `dlopen` of a `.so` FILE** — even one signed
+Public **or** Partner ("failed to map segment from shared object") — but **allows
+PROT_EXEC anonymous memory**. So loading the engine from memory is **mandatory**, not
+a fallback. Consequences, all applied to this repo:
+- `libmlengine.so` is built **TLS-free** (no `_Thread_local`) and with **DT_HASH**
+  (`--hash-style=both`) — the fallback ELF loader can't do `R_ARM_TLS_*` and needs
+  SYSV hash. (nuvio crash #180 was TLS in the first HTTPS call.)
+- `memfd_create` is called by **raw syscall 385** (ARM) — Tizen 4/5 libc doesn't
+  export the symbol.
+- The manifest must be **Public and must NOT declare `drminfo`** — with it,
+  Apps2Samsung signs Partner and some TVs refuse install with **`118014`**.
+- Host base for 4/5 is **`Tizen.TV.NUI.GLApplication`** (TVGLApplication), not the
+  6+ GLWindow. (For Moonlight the heavy GL UI may be unnecessary since video goes via
+  esplusplayer to the overlay — to be decided when the host is fleshed out.)
+
 ## 7. In-memory .so loading (implemented)
 2018–2020 sets **block native code loaded from the app folder**, so the host does NOT
 `DllImport`/dlopen `libmlengine.so` from `res/lib/`. Instead `Program.cs`
