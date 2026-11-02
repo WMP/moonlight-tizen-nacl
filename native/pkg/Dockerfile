@@ -14,7 +14,7 @@
 #   - install:  install-on-tv.sh <TV_IP> <pkg.wgt|.tpk> [cert_pw]  (sdb + tizen install)
 #
 # Build:  docker build -t moonlight-tizen-build native/pkg
-FROM vitalets/tizen-webos-sdk
+FROM docker.io/vitalets/tizen-webos-sdk
 
 # Extra build tools the core/engine scripts use (the cross toolchain itself is mounted).
 RUN apt-get update && apt-get install -y --no-install-recommends \
