@@ -62,38 +62,43 @@ device-specific inputs are **mounted**, never committed:
 - `tizen-deps/` — cross toolchain + Tizen 5.0 sysroot/sources (`fetch-tizen-sources.sh`)
 - `tv-libs/` — `.so` libraries copied from **your** TV (never redistribute these)
 
+The build image is based on **`vitalets/docker-tizen-webos-sdk`** — the same
+headless Tizen CLI image the Jellyfin community installer uses. It ships the Tizen
+Studio CLI (installed non-interactively via the web-cli installer), `sdb`, and a
+sample dev author cert + `profiles.xml`, so there is no GUI installer and no
+Tizen-Studio install step of our own.
+
 ```bash
 # 1. one-time: fetch toolchain + Tizen 5.0 sources, copy the TV's libraries
 native/fetch-tizen-sources.sh ./tizen-deps
 ssh root@<TV> 'cd / && tar cf - lib usr/lib' | tar xf - -C tizen-deps/tv-libs
 
-# 2. build the lean build image (build tools + a JRE; no GUI)
-podman build -t moonlight-tizen-build native/pkg
+# 2. build the image (vitalets base + a few build tools)
+docker build -t moonlight-tizen-build native/pkg
 
-# 3. build + package inside the container, mounting the Tizen Studio CLI dir
-#    (the installer is GUI-only, but the CLI itself runs headless, so it is
-#     mounted rather than installed into the image)
-podman run --rm \
-  -v "$PWD":/work/repo -v <moonlight-tizen>:/work/mlt \
-  -v <tizen-studio>:/work/tizen-cli \
-  moonlight-tizen-build \
-  bash -lc 'REPO=/work/repo MLT=/work/mlt DEPS=/work/repo/tizen-deps \
-            TIZEN_CLI=/work/tizen-cli/tools/ide/bin /work/repo/native/pkg/build-package.sh'
+# 3. build the engine .so + the web .wgt inside the container
+docker run --rm -v "$PWD":/work/repo -v <moonlight-tizen>:/work/mlt \
+  moonlight-tizen-build bash -lc '
+    REPO=/work/repo MLT=/work/mlt DEPS=/work/repo/tizen-deps \
+      /work/repo/native/pkg/build-package.sh'
 ```
 
-`build-package.sh` runs fully headless: build engine → assemble the web UI with
-the message-port transport → sign/package. The signing certificate is generated
-inside the container (self-signed author + the bundled Tizen dev distributor), so
-no GUI certificate wizard is needed.
+Then install on the TV exactly like Jellyfin — `sdb` + `tizen install`, in
+Developer Mode:
 
-> **Packaging status.** The image installs Tizen Studio fully headless (no GUI):
-> `native/pkg/install-tizen-cli.sh` bypasses the GUI installer by extracting its
-> self-extracting payload, then adds `NativeCLI` via the bundled package manager.
-> The CLI runs, generates a dev cert, and **signs the web `.wgt`** headless.
-> The native `.tpk` step still needs a TV **native rootstrap + templates** (the
-> Samsung TV SDK extension) that `NativeCLI` alone does not provide — until that is
-> added, build the `.tpk` by hand-assembling the zip and signing it. See
-> `native/pkg/install-tizen-cli.sh` and `pkg/ARCHITECTURE.md`.
+```bash
+docker run --rm --network host -v "$PWD":/work/repo moonlight-tizen-build \
+  /work/repo/native/pkg/install-on-tv.sh <TV_IP> <package.wgt|.tpk> [cert_password]
+```
+
+> **Packaging status.** The web `.wgt` builds, signs and installs headless on the
+> vitalets image (the Tizen-Studio-install problem is gone). The native engine ships
+> as `libmlengine.so` driven by a thin exe (root path) or a **.NET host `.tpk`**
+> (no-root dev-cert path — see `pkg/DEV-CERT-PATH.md`); the `.tpk` is built with the
+> .NET + Tizen workload and installed with the same `install-on-tv.sh`. Recent TVs
+> reject the default Tizen cert ("Invalid certificate chain"); pass a Samsung
+> certificate bound to the TV's DUID via the `cert_password` argument (mount
+> `author.p12`/`distributor.p12`), as the Jellyfin installer does.
 
 ## Install & run (no root required)
 
