@@ -116,5 +116,22 @@
     HEAPF64: { buffer: new ArrayBuffer(0) },
   };
 
+  // Boot without the WASM engine. The original starts the UI from the compiled
+  // module: common.js on DOMContentLoaded calls createWASMModule() -> loads
+  // moonlight-wasm.js -> (on WASM ready) window.moduleDidLoad(), which starts the
+  // app. We ship NO moonlight-wasm.js (the engine is the native service), so that
+  // chain would never fire moduleDidLoad and the UI would hang. mlbridge.js is parsed
+  // before common.js, so this DOMContentLoaded listener runs first and replaces
+  // common.domContentLoaded to skip the WASM load and fire moduleDidLoad() ourselves.
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.common && typeof window.common.domContentLoaded === 'function') {
+      window.common.domContentLoaded = function () {
+        try { if (window.common.attachDefaultListeners) window.common.attachDefaultListeners(); } catch (e) {}
+        ensurePorts();   // connect to the native engine service (lazy is fine)
+        if (typeof window.moduleDidLoad === 'function') window.moduleDidLoad();
+      };
+    }
+  }, false);
+
   console.log('[mlbridge] installed (message-port transport to ' + ENGINE_APPID + ')');
 })();
